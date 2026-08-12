@@ -18,9 +18,12 @@ interface RawTokenResponseBody {
 }
 
 export class TokenRequestFailedError extends Error {
+  readonly status: number;
+
   constructor(status: number) {
     super(`Token request to the Getrak API Core failed with status ${status}.`);
     this.name = "TokenRequestFailedError";
+    this.status = status;
   }
 }
 
