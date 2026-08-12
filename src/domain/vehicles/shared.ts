@@ -11,28 +11,16 @@
  * query param a estes endpoints.
  */
 
-import { z } from "zod";
 import type { Environment } from "../../config/environment.js";
-import type { ApiCoreClient } from "../../foundation/http/api-core-client.js";
-import { normalizeNullableFields } from "../../foundation/envelope/response-envelope.js";
-import { normalizePagination, type PaginationMeta } from "../../foundation/pagination/pagination.js";
+import type { ApiCoreClient, ApiCoreQueryValue } from "../../foundation/http/api-core-client.js";
+import { buildLimitOffsetPagination } from "../shared.js";
+
+export { centralSchema, paginationInputShape, normalizeItem, extractArray, buildPaginationMeta } from "../shared.js";
 
 export const VEHICLES_AUTH_SCHEME = "oauth2ClientCredentials" as const;
 
-export const centralSchema = z.string().min(1, "central is required");
-
-export const paginationInputShape = {
-  page: z.number().int().positive().optional(),
-  page_size: z.number().int().positive().optional(),
-};
-
 export interface VehiclesToolDeps {
   apiCoreClient: ApiCoreClient;
-}
-
-/** Normaliza um item bruto (undefined -> null em todos os campos de 1º nível). */
-export function normalizeItem(item: Record<string, unknown>): Record<string, unknown> {
-  return normalizeNullableFields(item);
 }
 
 /**
@@ -42,57 +30,20 @@ export function normalizeItem(item: Record<string, unknown>): Record<string, unk
  * mas o nome/descrição do endpoint e a presença de parâmetros de paginação
  * sugerem fortemente que a resposta real é uma lista. Esta é uma
  * inconsistência conhecida da API Core (PRD/Contexto: "objetos
- * inconsistentes"). Tratamos ambas as formas defensivamente em vez de
- * assumir uma delas como certa.
- */
-export function extractArray(raw: unknown): Record<string, unknown>[] {
-  if (Array.isArray(raw)) {
-    return raw as Record<string, unknown>[];
-  }
-  if (raw && typeof raw === "object") {
-    return [raw as Record<string, unknown>];
-  }
-  return [];
-}
-
-/**
- * Monta a paginação padronizada (US-004) e a traduz para o formato real do
- * endpoint (`limitParamName`/`offset`, ambos confirmados em
- * `reference/openapi.json` por endpoint — `limite` para
- * `/v0.2/veiculos/integracao` e `.../veiculoSuspenderIntegracao`, `limit`
- * para os endpoints de vínculo cliente/subcliente).
+ * inconsistentes"). Ver `extractArray` (domain/shared.ts) para o tratamento
+ * defensivo comum a ambas as formas.
  */
 export function buildUpstreamPagination(
   input: { page?: number; page_size?: number },
   limitParamName: "limite" | "limit",
 ): { query: Record<string, number>; page: number; page_size: number } {
-  const { page, page_size } = normalizePagination(input);
-  return {
-    query: { [limitParamName]: page_size, offset: (page - 1) * page_size },
-    page,
-    page_size,
-  };
-}
-
-/**
- * `has_more`/`total_items`: nenhum dos endpoints deste domínio retorna uma
- * contagem total no payload — apenas os itens da página. `total_items`
- * fica `null` (US-003: valor ausente normalizado de forma consistente);
- * `has_more` é uma estimativa (página cheia -> provavelmente há mais).
- */
-export function buildPaginationMeta(items: unknown[], page: number, page_size: number): PaginationMeta {
-  return {
-    page,
-    page_size,
-    total_items: null,
-    has_more: items.length >= page_size,
-  };
+  return buildLimitOffsetPagination(input, limitParamName);
 }
 
 export interface CallVehiclesEndpointParams {
   apiCoreClient: ApiCoreClient;
   path: string;
-  query: Record<string, string | number | boolean | undefined>;
+  query: Record<string, ApiCoreQueryValue>;
   environment: Environment;
   central: string;
 }

@@ -22,10 +22,17 @@ import {
   type FetchLike,
 } from "./http-client.js";
 
+/**
+ * Valor de query simples, ou um array para parâmetros repetidos (ex.:
+ * `filters[]=...&filters[]=...`, confirmado no code sample real de
+ * GET /v1.0/localization/offline-treatment em reference/openapi.json).
+ */
+export type ApiCoreQueryValue = string | number | boolean | undefined;
+
 export interface ApiCoreGetParams {
   /** Caminho do endpoint, ex.: "/v0.2/veiculos". */
   path: string;
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: Record<string, ApiCoreQueryValue | ApiCoreQueryValue[]>;
   environment: Environment;
   central: string;
   authScheme: AuthScheme;
@@ -88,14 +95,23 @@ export class ApiCoreClient {
 function buildUrl(
   baseUrl: string,
   path: string,
-  query?: Record<string, string | number | boolean | undefined>,
+  query?: Record<string, ApiCoreQueryValue | ApiCoreQueryValue[]>,
 ): string {
   const url = new URL(path, baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
-      if (value !== undefined) {
-        url.searchParams.set(key, String(value));
+      if (value === undefined) {
+        continue;
       }
+      if (Array.isArray(value)) {
+        for (const item of value) {
+          if (item !== undefined) {
+            url.searchParams.append(key, String(item));
+          }
+        }
+        continue;
+      }
+      url.searchParams.set(key, String(value));
     }
   }
   return url.toString();
