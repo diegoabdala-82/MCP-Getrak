@@ -31,7 +31,7 @@ export class AuthManager {
   ) {}
 
   async getAccessToken(params: GetAccessTokenParams): Promise<string> {
-    const secret = await this.secretsProvider.getSecret(params.environment, params.authScheme);
+    const secret = await this.secretsProvider.getSecret(params.environment, params.central, params.authScheme);
     const namespace = buildTokenNamespace({
       environment: params.environment,
       central: params.central,

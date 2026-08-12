@@ -1,3 +1,4 @@
+import { ResourceNotFoundException } from "@aws-sdk/client-secrets-manager";
 import { describe, expect, it, vi } from "vitest";
 import { RedisTokenCache, type RedisLikeClient } from "../../src/foundation/auth/redis-token-cache.js";
 import { AwsSecretsManagerProvider } from "../../src/foundation/auth/aws-secrets-provider.js";
@@ -60,7 +61,7 @@ describe("TD-02 — AwsSecretsManagerProvider (produção)", () => {
     });
     const provider = new AwsSecretsManagerProvider({ send } as never);
 
-    const secret = await provider.getSecret("production", "oauth2ClientCredentials");
+    const secret = await provider.getSecret("production", "central-1", "oauth2ClientCredentials");
     expect(secret).toEqual({
       auth_scheme: "oauth2ClientCredentials",
       client_id: "cc-id",
@@ -81,7 +82,7 @@ describe("TD-02 — AwsSecretsManagerProvider (produção)", () => {
     });
     const provider = new AwsSecretsManagerProvider({ send } as never);
 
-    const secret = await provider.getSecret("production", "oauth2Password");
+    const secret = await provider.getSecret("production", "central-1", "oauth2Password");
     expect(secret).toMatchObject({ auth_scheme: "oauth2Password", username: "agent" });
   });
 
@@ -89,8 +90,26 @@ describe("TD-02 — AwsSecretsManagerProvider (produção)", () => {
     const send = vi.fn().mockResolvedValue({});
     const provider = new AwsSecretsManagerProvider({ send } as never);
 
-    await expect(provider.getSecret("production", "oauth2ClientCredentials")).rejects.toBeInstanceOf(
-      MissingSecretError,
-    );
+    await expect(
+      provider.getSecret("production", "central-1", "oauth2ClientCredentials"),
+    ).rejects.toBeInstanceOf(MissingSecretError);
+  });
+
+  it("cai para a credencial genérica quando não existe uma específica da central", async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(new ResourceNotFoundException({ message: "not found", $metadata: {} }))
+      .mockResolvedValueOnce({
+        SecretString: JSON.stringify({
+          client_id: "generic-id",
+          client_secret: "generic-secret",
+          token_url: "https://api.getrak.com/oauth/token",
+        }),
+      });
+    const provider = new AwsSecretsManagerProvider({ send } as never);
+
+    const secret = await provider.getSecret("production", "central-1", "oauth2ClientCredentials");
+    expect(secret).toMatchObject({ client_id: "generic-id" });
+    expect(send).toHaveBeenCalledTimes(2);
   });
 });

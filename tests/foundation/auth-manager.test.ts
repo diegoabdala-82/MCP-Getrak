@@ -113,15 +113,40 @@ describe("US-001 — autenticação técnica por ambiente", () => {
         GETRAK_MCP_HOMOLOGATION_PASSWORD_PASSWORD: "agent-pass",
       }),
     );
-    const secret = await secretsProvider.getSecret("homologation", "oauth2Password");
+    const secret = await secretsProvider.getSecret("homologation", "central-1", "oauth2Password");
     expect(secret).toMatchObject({ auth_scheme: "oauth2Password", username: "agent-user" });
   });
 
   it("falha explicitamente quando falta credencial técnica para o ambiente/esquema", async () => {
     const secretsProvider = new EnvSecretsProvider({});
-    await expect(secretsProvider.getSecret("production", "oauth2ClientCredentials")).rejects.toBeInstanceOf(
-      MissingSecretError,
+    await expect(
+      secretsProvider.getSecret("production", "central-1", "oauth2ClientCredentials"),
+    ).rejects.toBeInstanceOf(MissingSecretError);
+  });
+
+  it("prioriza a credencial específica da central quando configurada, com fallback para a genérica", async () => {
+    const secretsProvider = new EnvSecretsProvider(
+      fakeEnv({
+        GETRAK_MCP_HOMOLOGATION_CENTRAL_7_CLIENT_CREDENTIALS_CLIENT_ID: "central-7-client-id",
+        GETRAK_MCP_HOMOLOGATION_CENTRAL_7_CLIENT_CREDENTIALS_CLIENT_SECRET: "central-7-secret",
+        GETRAK_MCP_HOMOLOGATION_CENTRAL_7_CLIENT_CREDENTIALS_TOKEN_URL: "https://api.getrak.com/oauth/token",
+      }),
     );
+
+    const central7Secret = await secretsProvider.getSecret(
+      "homologation",
+      "central-7",
+      "oauth2ClientCredentials",
+    );
+    expect(central7Secret).toMatchObject({ client_id: "central-7-client-id" });
+
+    // Central sem credencial específica cai para a credencial genérica de fakeEnv().
+    const otherCentralSecret = await secretsProvider.getSecret(
+      "homologation",
+      "central-9",
+      "oauth2ClientCredentials",
+    );
+    expect(otherCentralSecret).toMatchObject({ client_id: "cc-client-id" });
   });
 
   it("nunca inclui o valor do token em nenhuma estrutura de log (verificação estrutural)", async () => {

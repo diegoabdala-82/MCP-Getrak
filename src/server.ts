@@ -24,6 +24,8 @@ export interface DomainToolRegistration<TInput, TData> {
   definition: ToolDefinition<TInput, TData>;
 }
 
+export type RegisterDomainTool = <TInput, TData>(registration: DomainToolRegistration<TInput, TData>) => void;
+
 export interface GetrakMcpServerDeps {
   environment: Environment;
   catalog: ToolCatalog;
