@@ -16,7 +16,7 @@ describe("US-019 — get_offline_treatment_history", () => {
 
     expect(result.data.history).toEqual([{ id: 1, offline_treatment_id: 67890, type: "created", content: null }]);
     expect(fake.get).toHaveBeenCalledWith(
-      expect.objectContaining({ path: "/v1.0/localization/offline-treatment-history/id/67890" }),
+      expect.objectContaining({ path: "/v1.0/localization/offline-treatment-history/67890" }),
     );
   });
 });

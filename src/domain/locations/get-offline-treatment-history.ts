@@ -1,12 +1,21 @@
 /**
  * US-019 — Consultar histórico de um tratamento offline.
- * Endpoint: GET /v1.0/localization/offline-treatment-history/id/{offline_treatment_id}
- * (v1.0, vigente, oauth2Password/GetrakWeb). Confirmado contra
- * reference/openapi.json: `offline_treatment_id` é parâmetro de path
- * obrigatório; resposta é um array de entradas de histórico (sem paginação
- * nativa documentada). A spec de US-019 não pede paginação padrão (ao
- * contrário de US-014/015/016) — histórico de um único tratamento é
- * naturalmente limitado, então retornado por completo, sem corte.
+ * Endpoint: GET /v1.0/localization/offline-treatment-history/{offline_treatment_id}
+ * (v1.0, vigente, oauth2Password/GetrakWeb).
+ *
+ * CORRIGIDO (achado em teste real contra produção, 2026-08-14): o
+ * reference/openapi.json documenta o path como
+ * `.../offline-treatment-history/id/{offline_treatment_id}` (com o segmento
+ * extra `/id/`), mas esse path retorna 404 para todo `offline_treatment_id`
+ * real testado — a rota de fato implantada em produção NÃO tem o segmento
+ * `/id/`: `.../offline-treatment-history/{offline_treatment_id}` direto,
+ * confirmado retornando 200 com o array de histórico esperado. Erro de
+ * documentação da API Core, não do MCP — `offline_treatment_id` continua
+ * sendo o único parâmetro (path, obrigatório); resposta é um array de
+ * entradas de histórico (sem paginação nativa documentada). A spec de
+ * US-019 não pede paginação padrão (ao contrário de US-014/015/016) —
+ * histórico de um único tratamento é naturalmente limitado, então
+ * retornado por completo, sem corte.
  */
 
 import { z } from "zod";
@@ -14,7 +23,7 @@ import type { DomainToolRegistration } from "../../server.js";
 import type { ToolDefinition } from "../../foundation/tool-runtime.js";
 import { callLocationsEndpoint, centralSchema, normalizeItem, type LocationsToolDeps } from "./shared.js";
 
-const SOURCE_ENDPOINT = "GET /v1.0/localization/offline-treatment-history/id/{offline_treatment_id}";
+const SOURCE_ENDPOINT = "GET /v1.0/localization/offline-treatment-history/{offline_treatment_id}";
 
 export const getOfflineTreatmentHistoryInputSchema = z.object({
   central: centralSchema,
@@ -39,7 +48,7 @@ export function createGetOfflineTreatmentHistoryTool(
     handler: async (input, ctx) => {
       const raw = await callLocationsEndpoint<unknown>({
         apiCoreClient: deps.apiCoreClient,
-        path: `/v1.0/localization/offline-treatment-history/id/${encodeURIComponent(input.offline_treatment_id)}`,
+        path: `/v1.0/localization/offline-treatment-history/${encodeURIComponent(input.offline_treatment_id)}`,
         query: {},
         environment: ctx.environment,
         central: input.central,
