@@ -3,6 +3,14 @@
  * Executa os dois fluxos OAuth2 suportados pela API Core:
  * `oauth2ClientCredentials` (grant_type=client_credentials) e
  * `oauth2Password` (grant_type=password).
+ *
+ * Autenticação do cliente OAuth via HTTP Basic Auth
+ * (`Authorization: Basic base64(client_id:client_secret)`), conforme RFC
+ * 6749 §2.3.1 e confirmado contra um exemplo real de chamada ao endpoint de
+ * token da Getrak API Core (`/newkoauth/oauth/token`) — client_id/secret não
+ * vão no corpo do form, só no header. `username`/`password` (grant
+ * password) continuam no corpo, pois são credenciais do resource owner, não
+ * do client OAuth.
  */
 
 import { fetchWithTimeout, SIMPLE_CALL_TIMEOUT_MS, type FetchLike } from "../http/http-client.js";
@@ -27,6 +35,11 @@ export class TokenRequestFailedError extends Error {
   }
 }
 
+function buildBasicAuthHeader(clientId: string, clientSecret: string): string {
+  const credentials = `${clientId}:${clientSecret}`;
+  return `Basic ${Buffer.from(credentials, "utf8").toString("base64")}`;
+}
+
 export class HttpOAuth2Client implements OAuth2Client {
   constructor(private readonly fetchImpl: FetchLike = fetch) {}
 
@@ -35,12 +48,8 @@ export class HttpOAuth2Client implements OAuth2Client {
 
     if (secret.auth_scheme === "oauth2ClientCredentials") {
       body.set("grant_type", "client_credentials");
-      body.set("client_id", secret.client_id);
-      body.set("client_secret", secret.client_secret);
     } else {
       body.set("grant_type", "password");
-      body.set("client_id", secret.client_id);
-      body.set("client_secret", secret.client_secret);
       body.set("username", secret.username);
       body.set("password", secret.password);
     }
@@ -49,7 +58,10 @@ export class HttpOAuth2Client implements OAuth2Client {
       {
         method: "POST",
         url: secret.token_url,
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Authorization: buildBasicAuthHeader(secret.client_id, secret.client_secret),
+        },
         body: body.toString(),
         timeoutMs: SIMPLE_CALL_TIMEOUT_MS,
       },
