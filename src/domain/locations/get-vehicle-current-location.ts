@@ -9,14 +9,25 @@
  * no endpoint mas não fazem sentido para "localização atual de UM veículo"
  * (provavelmente reaproveitados de um endpoint de listagem mais genérico) —
  * não expostos nesta tool, conforme a spec (entrada: apenas identificador de
- * veículo). Resposta: objeto `{page, pages, tema_central, total, veiculos}`,
- * onde `veiculos` é o registro de localização do veículo (não uma lista).
+ * veículo).
+ *
+ * CONFIRMADO em teste real contra produção (2026-08-14, central
+ * "apresentacao", mesmo veículo, duas chamadas sucessivas): a resposta é
+ * `{page, pages, tema_central, total, veiculos}`, mas `veiculos` NÃO é o
+ * registro plano único que o schema do openapi.json documenta — e a forma
+ * observada nem é sempre a mesma entre chamadas: já foi vista tanto como
+ * array (`[{...campos do veículo...}]`, forma mais comum) quanto como objeto
+ * indexado numericamente (`{"0": {...}}`), para exatamente o mesmo veículo e
+ * central. Consistente com o alerta do PRD/Contexto sobre "objetos
+ * inconsistentes" na API Core (provável artefato de serialização de array
+ * associativo no backend). Tratado defensivamente cobrindo as três formas:
+ * array, objeto com chaves puramente numéricas, e registro plano direto
+ * (formato documentado, não observado ainda mas mantido como fallback).
  */
 
 import { z } from "zod";
 import type { DomainToolRegistration } from "../../server.js";
 import type { ToolDefinition } from "../../foundation/tool-runtime.js";
-import { normalizeNullable } from "../../foundation/envelope/response-envelope.js";
 import {
   callLocationsEndpoint,
   centralSchema,
@@ -39,11 +50,39 @@ export interface GetVehicleCurrentLocationData {
 }
 
 interface RawLocationsResponse {
-  veiculos?: Record<string, unknown> | null;
+  veiculos?: Record<string, unknown> | unknown[] | null;
 }
 
-function hasUsableLocation(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && Object.keys(value).length > 0;
+const NUMERIC_KEY_PATTERN = /^\d+$/;
+
+/**
+ * Extrai o registro de localização de `veiculos`, cobrindo as três formas
+ * observadas/documentadas (ver comentário no topo do arquivo): array,
+ * objeto indexado numericamente, e registro plano direto.
+ */
+function extractLocationRecord(veiculos: unknown): Record<string, unknown> | null {
+  if (!veiculos || typeof veiculos !== "object") {
+    return null;
+  }
+
+  if (Array.isArray(veiculos)) {
+    const first = veiculos[0];
+    return first && typeof first === "object" ? (first as Record<string, unknown>) : null;
+  }
+
+  const obj = veiculos as Record<string, unknown>;
+  const keys = Object.keys(obj);
+  if (keys.length === 0) {
+    return null;
+  }
+
+  const firstKey = keys[0];
+  if (firstKey !== undefined && keys.every((key) => NUMERIC_KEY_PATTERN.test(key))) {
+    const first = obj[firstKey];
+    return first && typeof first === "object" ? (first as Record<string, unknown>) : null;
+  }
+
+  return obj;
 }
 
 export function createGetVehicleCurrentLocationTool(
@@ -64,7 +103,8 @@ export function createGetVehicleCurrentLocationTool(
         central: input.central,
       });
 
-      const location = hasUsableLocation(raw.veiculos) ? normalizeItem(raw.veiculos) : normalizeNullable(null);
+      const record = extractLocationRecord(raw.veiculos);
+      const location = record ? normalizeItem(record) : null;
 
       return {
         data: { location },
