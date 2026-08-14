@@ -5,6 +5,10 @@
  * reference/openapi.json: query params reais
  * `sistema, id_veiculo, subcliente, limit, offset`; resposta é array de
  * `{placa, id_veiculo, modulo, subcliente}`.
+ *
+ * CORRIGIDO (ver search-vehicles.ts para o achado completo): `sistema` é
+ * central, confirmado por consistência com ~40 outras rotas "integracao" no
+ * openapi.json — enviado explicitamente agora.
  */
 
 import { z } from "zod";
@@ -53,6 +57,7 @@ export function createGetVehicleSubclientLinkTool(
         apiCoreClient: deps.apiCoreClient,
         path: "/v0.2/veiculos/subclientes/integracao",
         query: {
+          sistema: input.central,
           id_veiculo: input.vehicle_id,
           subcliente: input.subclient_id,
           ...upstreamPagination.query,

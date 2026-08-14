@@ -26,8 +26,10 @@ import { AllowAllToolPermissionChecker, ToolCatalog } from "./foundation/catalog
 import { ApiCoreClient } from "./foundation/http/api-core-client.js";
 import { StaticConsumerIdentityResolver } from "./foundation/identity/consumer-context.js";
 import { ToolRuntime } from "./foundation/tool-runtime.js";
+import { registerEquipmentTools } from "./domain/equipments/index.js";
 import { registerLocationTools } from "./domain/locations/index.js";
 import { registerVehicleTools } from "./domain/vehicles/index.js";
+import { registerWorkOrderTools } from "./domain/work-orders/index.js";
 import { createGetrakMcpServer } from "./server.js";
 
 async function main() {
@@ -64,6 +66,8 @@ async function main() {
 
   registerVehicleTools(registerDomainTool, { apiCoreClient });
   registerLocationTools(registerDomainTool, { apiCoreClient });
+  registerEquipmentTools(registerDomainTool, { apiCoreClient });
+  registerWorkOrderTools(registerDomainTool, { apiCoreClient });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

@@ -42,4 +42,13 @@ describe("US-010 — get_vehicle_client_link", () => {
       expect.objectContaining({ query: expect.objectContaining({ limit: 20, offset: 40 }) }),
     );
   });
+
+  it("envia central como sistema (confirmado no openapi.json e por consistência com endpoints irmãos)", async () => {
+    const fake = createFakeApiCoreClient([]);
+    const { definition } = createGetVehicleClientLinkTool({ apiCoreClient: fake.client });
+    await definition.handler(definition.inputSchema.parse({ central: "central-42" }), ctx);
+    expect(fake.get).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ sistema: "central-42" }) }),
+    );
+  });
 });

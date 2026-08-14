@@ -9,12 +9,23 @@
  *
  * A fundação (US-001/`AuthManager`) modela apenas `oauth2ClientCredentials`
  * vs. `oauth2Password` como dimensão de credencial, sem granularidade de
- * escopo dentro de `oauth2Password` — assumido, sem confirmação em
- * homologação, que a credencial técnica de password grant configurada por
- * ambiente/central já concede ambos os escopos usados pela V1. Se isso não
- * se confirmar, será necessário estender `AuthScheme`/`SecretsProvider` para
- * incluir o escopo OAuth como dimensão adicional — mesma categoria de
- * ED-02 (autenticação combinada), não travado como definitivo.
+ * escopo dentro de `oauth2Password`.
+ *
+ * CONFIRMADO em teste real contra produção (2026-08-14, credencial técnica
+ * da central "apresentacao"): o token emitido para essa credencial carrega
+ * `scope: ["PublicoCliente"]` apenas — NÃO inclui `GetrakWeb`. Uma chamada
+ * real a `get_offline_treatments` (US-018) com essa credencial falhou com
+ * 401 (`UNAUTHORIZED`), normalizado corretamente pela fundação. Ou seja, a
+ * suposição anterior ("uma única credencial cobre ambos os escopos") está
+ * refutada para esta credencial específica — não é mais um "não confirmado",
+ * é um achado real que bloqueia US-018/US-019 em produção até que:
+ * (a) a mesma conta técnica seja provisionada também com escopo `GetrakWeb`, ou
+ * (b) `AuthScheme`/`SecretsProvider` sejam estendidos para modelar escopo OAuth
+ *     como dimensão própria (permitindo duas credenciais distintas dentro do
+ *     mesmo esquema `oauth2Password`), ou
+ * (c) uma credencial técnica separada, já provisionada com `GetrakWeb`, seja
+ *     usada especificamente para US-018/US-019.
+ * US-013 a US-017 (escopo `PublicoCliente`) não são afetadas por este achado.
  */
 
 import { z } from "zod";
