@@ -6,9 +6,18 @@
  * resposta é um array de objetos de veículo; paginação real = limite/offset
  * (não page/per_page).
  *
- * `sistema` existe no endpoint mas sua descrição na especificação é apenas
- * "dev" (sem documentação real) — não é exposto como parâmetro da tool para
- * não assumir um comportamento não documentado (CLAUDE.md/Contexto §12.8).
+ * CORRIGIDO (achado ao revisitar o openapi.json com resolução completa de
+ * parâmetros `$ref` durante a pesquisa do Epic 4): `sistema` é descrito
+ * apenas como "dev" NESTE endpoint especificamente, mas o mesmo parâmetro,
+ * no mesmo formato, aparece em ~40 outras rotas da família "integracao" do
+ * openapi.json consistentemente documentado como central
+ * ("Central unique identifier", "Filter by central" em
+ * /v0.2/equipamentos/integracao, etc.) — inclusive em
+ * GET /v0.2/veiculos/integracao/veiculoSuspenderIntegracao, endpoint irmão
+ * deste, onde a descrição É "Central unique identifier". A versão anterior
+ * desta tool não enviava `sistema`, na suposição (errada, GAP-004-like) de
+ * que o isolamento por central era só resolvido pela credencial técnica.
+ * Corrigido para enviar `sistema: central` explicitamente também.
  */
 
 import { z } from "zod";
@@ -62,6 +71,7 @@ export function createSearchVehiclesTool(
         apiCoreClient: deps.apiCoreClient,
         path: "/v0.2/veiculos/integracao",
         query: {
+          sistema: input.central,
           id: input.id,
           placa: input.plate,
           ativo: input.active_status,

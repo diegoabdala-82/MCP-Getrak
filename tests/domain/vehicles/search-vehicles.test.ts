@@ -52,6 +52,7 @@ describe("US-008 — search_vehicles", () => {
       expect.objectContaining({
         path: "/v0.2/veiculos/integracao",
         query: {
+          sistema: "central-1",
           id: "42",
           placa: "ABC1234",
           ativo: "Y",

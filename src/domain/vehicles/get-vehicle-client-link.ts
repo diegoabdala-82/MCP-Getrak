@@ -12,6 +12,10 @@
  * auditoria (US-005), nunca na resposta normalizada em si (a tool retorna o
  * dado ao consumidor autorizado; mascaramento de resposta ao consumidor
  * final não está no escopo desta spec nem do envelope US-003).
+ *
+ * CORRIGIDO (ver search-vehicles.ts para o achado completo): `sistema` é
+ * central, confirmado por consistência com ~40 outras rotas "integracao" no
+ * openapi.json — enviado explicitamente agora.
  */
 
 import { z } from "zod";
@@ -60,6 +64,7 @@ export function createGetVehicleClientLinkTool(
         apiCoreClient: deps.apiCoreClient,
         path: "/v0.2/veiculos/clientes/integracao",
         query: {
+          sistema: input.central,
           id_veiculo: input.vehicle_id,
           cliente: input.client_id,
           ...upstreamPagination.query,

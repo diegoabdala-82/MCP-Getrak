@@ -3,12 +3,20 @@
  * US-012). Todos os 5 endpoints de origem usam `oauth2ClientCredentials`,
  * escopo `Integracao` (confirmado em `reference/openapi.json`).
  *
- * Nenhum dos 5 endpoints (`/v0.2/veiculos/...`) aceita `central` como
- * parâmetro de request (nem query, nem path) — ver nota em
- * `foundation/auth/secrets-provider.ts`. Por isso `central` aqui só é usado
- * para: (a) validação de autorização (US-002) e (b) resolução da credencial
- * técnica correta via `ApiCoreClient`/`AuthManager`; nunca é enviado como
- * query param a estes endpoints.
+ * CORRIGIDO (achado ao pesquisar o Epic 4 — ver comentário completo em
+ * `search-vehicles.ts`): 4 dos 5 endpoints (`/v0.2/veiculos/integracao`,
+ * `/v0.2/veiculos/clientes/integracao`, `/v0.2/veiculos/subclientes/integracao`,
+ * `/v0.2/veiculos/integracao/veiculoSuspenderIntegracao`) TÊM, sim, um
+ * parâmetro de request para central — `sistema` — confirmado por
+ * consistência com ~40 outras rotas "integracao" no openapi.json, todas
+ * documentando o mesmo parâmetro como central. A afirmação anterior deste
+ * comentário ("nenhum... aceita central como parâmetro") estava errada;
+ * cada tool agora envia `sistema: central` explicitamente. Isso não torna a
+ * resolução de credencial por central (`foundation/auth/secrets-provider.ts`)
+ * desnecessária — mantida como camada de defesa adicional, já que não há
+ * confirmação de que a credencial técnica NÃO seja também central-scoped.
+ * Único endpoint sem esse parâmetro: `/v0.2/veiculos/categorias`
+ * (get-vehicle-category.ts) — confirmado sem nenhum parâmetro de request.
  */
 
 import type { Environment } from "../../config/environment.js";

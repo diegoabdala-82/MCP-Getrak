@@ -2,13 +2,22 @@
  * US-012 — Consultar veículos suspensos.
  * Endpoint: GET /v0.2/veiculos/integracao/veiculoSuspenderIntegracao (v0.2,
  * vigente, oauth2ClientCredentials/Integracao). Confirmado contra
- * reference/openapi.json: query params reais `id_veiculo, limite, offset, ordem`.
+ * reference/openapi.json: query params reais
+ * `sistema, id_veiculo, limite, offset, ordem`.
  *
  * O schema de resposta declarado é `type: object` (um único veículo), mas o
  * nome do endpoint (lista de veículos suspensos) e a presença de
  * `limite`/`offset` sugerem fortemente uma lista — tratado defensivamente
  * via `extractArray`, mesma inconsistência documentada em
  * `get-vehicle-category.ts`.
+ *
+ * CORRIGIDO: a pesquisa original desta US usava um script que não
+ * resolvia parâmetros `$ref` no openapi.json, e `sistema` deste endpoint
+ * especificamente é declarado via `$ref` — por isso passou despercebido.
+ * Sua descrição aqui já era clara ("Central unique identifier"); ao
+ * reconferir durante o Epic 4, ficou evidente que era central e nunca
+ * estava sendo enviado. Corrigido (ver search-vehicles.ts para o achado
+ * completo que também afetou US-008/010/011).
  */
 
 import { z } from "zod";
@@ -57,6 +66,7 @@ export function createGetSuspendedVehiclesTool(
         apiCoreClient: deps.apiCoreClient,
         path: "/v0.2/veiculos/integracao/veiculoSuspenderIntegracao",
         query: {
+          sistema: input.central,
           id_veiculo: input.vehicle_id,
           ordem: input.sort,
           ...upstreamPagination.query,

@@ -29,4 +29,13 @@ describe("US-011 — get_vehicle_subclient_link", () => {
     const result = await definition.handler(definition.inputSchema.parse({ central: "central-1" }), ctx);
     expect(result.data.links).toEqual([]);
   });
+
+  it("envia central como sistema (confirmado no openapi.json e por consistência com endpoints irmãos)", async () => {
+    const fake = createFakeApiCoreClient([]);
+    const { definition } = createGetVehicleSubclientLinkTool({ apiCoreClient: fake.client });
+    await definition.handler(definition.inputSchema.parse({ central: "central-42" }), ctx);
+    expect(fake.get).toHaveBeenCalledWith(
+      expect.objectContaining({ query: expect.objectContaining({ sistema: "central-42" }) }),
+    );
+  });
 });
