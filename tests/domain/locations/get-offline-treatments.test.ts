@@ -42,4 +42,30 @@ describe("US-018 — get_offline_treatments", () => {
       expect.objectContaining({ query: expect.objectContaining({ "filters[]": undefined }) }),
     );
   });
+
+  it("sempre envia fields[] com o conjunto completo de campos documentados (confirmado em produção: sem isso, o endpoint retorna só {id})", async () => {
+    const fake = createFakeApiCoreClient({ data: [], page: 1, pages: 1, total: 0 });
+    const { definition } = createGetOfflineTreatmentsTool({ apiCoreClient: fake.client });
+
+    await definition.handler(definition.inputSchema.parse({ central: "central-1" }), ctx);
+
+    expect(fake.get).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: expect.objectContaining({
+          "fields[]": [
+            "id",
+            "vehicle_id",
+            "status",
+            "central_id",
+            "created_at",
+            "finished_at",
+            "finished_by",
+            "ignore_until",
+            "reason",
+            "started_by",
+          ],
+        }),
+      }),
+    );
+  });
 });
