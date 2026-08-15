@@ -6,11 +6,34 @@ As specs individuais (uma por User Story) definem endpoint, contrato de entrada/
 
 **Fontes de verdade deste projeto (nesta ordem, em caso de conflito):**
 1. Instrução explícita mais recente do usuário na sessão
-2. PRD - Getrak Core MCP (v1.2, Aprovado)
-3. Technical Brief - Getrak Core MCP (Aprovado — Odilon/Engenharia, Diego/Produto)
-4. Specs individuais por User Story (pasta `Claude Code / Specs` no Notion)
+2. PRD - Getrak Core MCP (**v1.5**, Aprovado — pendente reconfirmação formal de Diego sobre TD-05, ver Seção 6)
+3. Technical Brief - Getrak Core MCP (TECHNICALLY READY — WITH ENGINEERING DISCOVERY; TD-01 a TD-05 aprovados)
+4. Specs individuais por User Story (pasta `Claude Code / Specs` no Notion — 48 documentos: US-001 a US-048, exceto lacunas registradas na Seção 9)
+5. `epicsuserstoriesimplementados.md` — registro do que **já foi codificado e testado**; usar para não reimplementar, não para redefinir contrato (contrato vem da spec)
 
 Não invente endpoints, schemas, regras de negócio ou capacidades que não estejam em uma dessas fontes. Se algo não estiver definido, pare e sinalize — não assuma.
+
+---
+
+## 0. Estado atual da implementação (atualizado 15/08/2026)
+
+**Já implementado, testado e mergeado em `main` (PRs #1 e #2):**
+- Epic 1 — Fundação (US-001 a US-007): infraestrutura transversal completa.
+- Epic 2 — Veículos (US-008 a US-012): 5 tools, `oauth2ClientCredentials`/`Integracao` — **ainda não testadas contra produção** (sem credencial desse tipo disponível até o momento).
+- Epic 3 — Localização (US-013 a US-019): 7 tools, `oauth2Password` — **todas testadas contra produção real**. Três bugs reais encontrados e corrigidos (ver Seção 7).
+- Epic 4 — Equipamentos (US-020, US-021): 2 tools, `oauth2ClientCredentials`/`Integracao` — não testadas contra produção.
+- Epic 5 — Ordens de Serviço (US-022 a US-025): 4 tools, implementadas com `oauth2ClientCredentials` mas **testadas via `oauth2Password`** — decisão de qual esquema usar em produção real segue em aberto (ver Seção 6.3).
+
+Total: 23 tools MCP registradas, 131 testes automatizados.
+
+**Ainda não implementado:**
+- Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
+- Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo desta fase.
+- **Epic 9 (US-030 a US-034)** — Clientes, Subclientes, Usuários e Perfis. **Novo em 15/08/2026.** Endpoints todos `oauth2ClientCredentials`/`Integracao`, mesmo padrão de auth já implementado em Epic 2/4 — não depende do modelo híbrido de identidade (Seção 6) para ser codificado.
+- **Epic 10 (US-035 a US-042)** — domínios internos Getrak Web (acessórios, integrações, perímetros). **Novo em 15/08/2026.** Todos `oauth2Password`/`GetrakWeb` — **bloqueado** até o fluxo de token delegado (US-046 a US-048) estar implementado e validado, o que por sua vez depende de ED-ID-01 (ver Seção 6.2).
+- **Epic 11 (US-043)** — consulta de documentos de pagamento/KYC. **Bloqueado**: requer aprovação explícita de Produto e revisão de Segurança antes de qualquer código, mesmo sendo leitura.
+- US-032 (dentro do Epic 9) — **bloqueada individualmente** por GAP-018 (ver Seção 9).
+- US-038 (dentro do Epic 10) — **bloqueada individualmente** por GAP-019, path não confirmado (ver Seção 9).
 
 ---
 
@@ -18,7 +41,7 @@ Não invente endpoints, schemas, regras de negócio ou capacidades que não este
 
 O Getrak Core MCP é um produto interno da Getrak que expõe um catálogo curado de tools orientadas a tarefas sobre a Getrak API Core, via Model Context Protocol, para consumo por agentes de IA (o primeiro consumidor confirmado é o Claude Code).
 
-A V1 é **predominantemente/preferencialmente 100% read-only**, cobrindo veículos, localização, equipamentos e ordens de serviço (Release 1), com telemetria e webhooks apenas em consulta na Release 2. Este não é um proxy genérico da API — cada tool é uma decisão deliberada de produto, com escopo, risco e valor avaliados individualmente.
+A V1 é **predominantemente/preferencialmente 100% read-only**. O escopo de domínios cobre, por decisão de produto de 15/08/2026, os grupos `x-tagGroups` **Public, Integration e Getrak Web** da OpenAPI Core — não mais apenas veículos/localização/equipamentos/ordens de serviço. Cada tool continua sendo uma decisão deliberada de produto, com escopo, risco e valor avaliados individualmente; presença no `openapi.json` não é critério suficiente para virar tool (ver Epics 11/12 e gaps da Seção 9).
 
 ---
 
@@ -79,8 +102,9 @@ Nunca aceitar como parâmetro livre controlado pelo modelo:
 - credenciais, client ID, client secret, tokens
 - URLs de API
 - chaves internas
+- **(reforçado pelo modelo híbrido de identidade, TD-05):** `scope`, `auth_profile`, `credential_id` — a seleção do perfil de autenticação é sempre interna e determinística (ver Seção 6.1), nunca parâmetro de tool
 
-Esses valores são resolvidos pela configuração da conexão MCP, nunca pelo agente chamador.
+Esses valores são resolvidos pela configuração da conexão MCP ou pelo Auth Profile Registry interno, nunca pelo agente chamador.
 
 ### Central
 - `central` pode ser parâmetro de contexto de qualquer tool
@@ -110,16 +134,17 @@ Estes são valores de partida, sujeitos a recalibração após load tests, homol
 | Retry — read | até 2, apenas em erros transitórios (HTTP 429/502/503/504, timeout de conexão/rede), com backoff exponencial + jitter |
 | Retry — write | 0 por padrão; automático só com garantia de idempotência (não aplicável na V1, que é read-only) |
 
-Cada adapter de API deve encapsular o comportamento real de paginação do endpoint correspondente (`page/per_page`, `limit/offset`, ausência de paginação) — **nunca assumir um único modelo genérico de paginação para todos os endpoints.**
+Cada adapter de API deve encapsular o comportamento real de paginação do endpoint correspondente (`page/per_page`, `limit/offset`, ausência de paginação) — **nunca assumir um único modelo genérico de paginação para todos os endpoints.** Endpoints novos (Epic 9/10) devem ter seu padrão real de paginação confirmado empiricamente ao implementar, não apenas assumido a partir da spec (ver Seção 7).
 
 ---
 
-## 5. Estratégia de cache (TD-04)
+## 5. Estratégia de cache (TD-04, revisado por TD-05)
 
-**Cache de tokens:** sim, compartilhado, em Amazon ElastiCache for Redis.
-- Namespace: `mcp:{environment}:{central}:{auth_scheme}:{credential_id}`
-- TTL: expiração do token menos 60 segundos de margem de segurança
-- Tokens nunca aparecem em log, sob nenhuma circunstância
+**Cache de tokens:** sim, compartilhado, em Amazon ElastiCache for Redis, em **dois namespaces distintos**:
+- Token delegado do usuário (`oauth2Password`): `mcp:{environment}:{central}:oauth2Password:{user_id}:{session_id}` (evoluindo para `{delegated_session_id}` quando a API Core disponibilizar esse identificador)
+- Credencial técnica do MCP (`oauth2ClientCredentials`): `mcp:{environment}:{central}:oauth2ClientCredentials:{credential_id}`
+- TTL em ambos: expiração do token menos 60 segundos de margem de segurança
+- Tokens nunca aparecem em log, sob nenhuma circunstância, em nenhum dos dois namespaces
 
 **Cache de dados operacionais:** **não existe na V1.** Não implementar cache genérico de respostas para dados de alta volatilidade (localização, velocidade, ignição, telemetria, status, ordens em andamento, tratamentos offline). Isso é intencional — o MCP é usado em contexto de investigação/diagnóstico, e dado desatualizado compromete a confiabilidade da ferramenta.
 
@@ -127,56 +152,85 @@ Todo cache (quando existir) deve ser isolado por `environment + central + resour
 
 ---
 
-## 6. Autenticação (TD-02)
+## 6. Autenticação — modelo híbrido de identidade (TD-05)
 
-- A API Core usa dois esquemas OAuth2: `oauth2ClientCredentials` e `oauth2Password`. Algumas tools (ex.: ordens de serviço) aceitam ambos dependendo do escopo; a tool composta `get_vehicle_operational_context` (US-029) usa **os dois simultaneamente**.
-- Credenciais técnicas são resolvidas por ambiente — nunca gerenciadas pelo agente consumidor.
-- A identidade do usuário/agente consumidor deve ser preservada na camada MCP para autorização e auditoria, **mesmo quando a chamada à API Core usa uma credencial técnica compartilhada.** Identidade de autenticação (API Core) e identidade de autorização/auditoria (MCP) são conceitos distintos.
+**Atualizado em 15/08/2026 — substitui o modelo anterior deste arquivo ("credenciais técnicas resolvidas por ambiente" como regra única).**
+
+### 6.1 Princípio central
+A API Core usa dois esquemas OAuth2, com responsabilidades distintas e não intercambiáveis:
+
+- **`oauth2Password` → token delegado por sessão do usuário**, emitido pela própria API Core. Representa a identidade e as permissões reais do usuário Getrak autenticado. A API Core é a fonte de autoridade dessa identidade; o MCP nunca amplia esse acesso, podendo apenas restringi-lo.
+- **`oauth2ClientCredentials` → credencial técnica do MCP**. Representa a integração MCP como aplicação técnica, não um usuário específico.
+
+A seleção de qual esquema/escopo (`auth_profile`) uma tool usa é **determinística e definida na implementação da tool** (Auth Profile Registry interno), nunca escolhida pelo usuário, pelo agente de IA ou passada como parâmetro.
+
+O MCP nunca usa token delegado em endpoint que exige `oauth2ClientCredentials`, nem o inverso.
+
+### 6.2 Status de implementação
+O fluxo de token delegado (US-046, US-047, US-048) **ainda não foi implementado**. O fluxo exato de emissão do token delegado pela API Core (endpoint, parâmetros, lifetime, refresh, revogação) é **ED-ID-01 — bloqueante para qualquer tool que dependa de `oauth2Password` como token delegado real**, incluindo todo o Epic 10.
+
+As tools já implementadas com `oauth2Password` (Epic 3 — Localização; parte do Epic 5 — Ordens de Serviço) foram codificadas **antes** desta decisão de arquitetura, usando o modelo anterior (credencial técnica resolvida por ambiente). Isso é uma dívida técnica registrada, não um erro a corrigir às pressas: essas tools continuam funcionais e testadas contra produção real. A migração dessas tools para o modelo de token delegado deve ser tratada como item de trabalho técnico explícito, não feita silenciosamente dentro de outra tarefa.
+
+**Regra prática para código novo:** nenhuma tool nova que dependa de `oauth2Password` como identidade delegada real (Epic 10 em diante) deve ser implementada antes de US-046/US-047/US-048 estarem prontos e validados. Tools novas que usam exclusivamente `oauth2ClientCredentials` (ex.: Epic 9, exceto US-032) não têm essa dependência e podem ser implementadas normalmente, seguindo o mesmo padrão já usado em Epic 2/4.
+
+### 6.3 Decisão em aberto herdada do Epic 5
+As tools de Ordens de Serviço (US-022 a US-025) aceitam ambos os esquemas na API Core, foram implementadas com `oauth2ClientCredentials` mas testadas via `oauth2Password`. Qual esquema usar definitivamente em produção **ainda não foi decidido** — isso é anterior e independente do modelo híbrido (TD-05), mas deve ser resolvido usando os mesmos princípios: se a tool precisa de identidade/permissão de um usuário específico, usa token delegado; se é uma operação técnica de integração, usa credencial técnica. Não decidir isso por conta própria ao tocar nesse código — sinalizar e aguardar decisão.
 
 ---
 
-## 7. Versionamento de endpoint
+## 7. Versionamento de endpoint e confiabilidade da documentação
 
 - Sempre preferir a versão vigente (não depreciada) de um endpoint quando houver equivalente.
 - O critério de vigência é **exclusivamente a flag `deprecated` no `openapi.json`** — nunca inferir depreciação a partir do número de versão. Vários endpoints v0.1 usados neste projeto (ex.: localização, relatório de ordem de serviço) são vigentes.
-- Se uma spec individual referenciar um endpoint, esse endpoint já foi verificado contra o `openapi.json` — não re-verificar nem substituir por conta própria sem justificativa registrada.
+- **Atualizado com base em achados reais de produção:** a documentação (`openapi.json` e specs derivadas dele) **não é infalível**. Na implementação do Epic 3, três discrepâncias reais entre documentação e comportamento em produção foram encontradas e corrigidas: shape de resposta diferente do documentado (US-013), parâmetro `fields[]` com comportamento não documentado (US-018), e path documentado incorretamente no `openapi.json` (US-019). Portanto:
+  - Se uma spec individual referencia um endpoint, ele já foi verificado *contra a documentação* — mas isso não substitui a verificação empírica contra o comportamento real em homologação/produção ao implementar.
+  - Quando o comportamento real divergir da documentação, **implementar conforme o comportamento real observado, documentando a divergência no PR** (não decidir isso silenciosamente nem reabrir a spec sozinho) — sinalizar a discrepância para que Contexto/PRD/Technical Brief sejam atualizados posteriormente.
+  - Essa regra vale com força redobrada para os domínios novos (Epic 9/10), que ainda não têm nenhuma validação empírica — apenas mapeamento contra o `openapi.json`.
 
 ---
 
 ## 8. Segurança, privacidade e auditoria
 
-Dados considerados sensíveis neste projeto: localização, placa, chassi, CPF, CNPJ, telefone, e-mail, identificadores de cliente/subcliente/usuário/motorista/equipamento, telemetria, tokens, credenciais.
+Dados considerados sensíveis neste projeto: localização, placa, chassi, CPF, CNPJ, telefone, e-mail, identificadores de cliente/subcliente/usuário/motorista/equipamento, telemetria, tokens, credenciais, documentos de pagamento/KYC.
 
-- Toda execução de tool gera um registro de auditoria estruturado: `request_id`, usuário/agente, ambiente, central, tool, endpoint(s), método, classificação de risco, resultado, status, duração, entidades afetadas.
+- Toda execução de tool gera um registro de auditoria estruturado: `request_id`, usuário/agente, ambiente, central, tool, endpoint(s), método, esquema de autenticação usado (`delegated_user` ou `technical_client`), classificação de risco, resultado, status, duração, entidades afetadas.
 - Nunca persistir integralmente em log: tokens, segredos, CPF, telefone, e-mail, payloads sensíveis completos.
 - Mascaramento e minimização aplicados tanto na resposta normalizada quanto no log de auditoria.
 - Correlação ponta a ponta sempre pelo `request_id`.
 
 ---
 
-## 9. Fora de escopo da V1 — não implementar sem nova decisão de produto
+## 9. Fora de escopo da V1 e bloqueios explícitos — não implementar sem nova decisão
 
 - Qualquer operação de **escrita** (criação, atualização, exclusão, suspensão, reativação, envio/cancelamento de comando, finalização de ordem, criação/remoção de webhook).
 - Operações de **alto risco** de qualquer natureza.
 - **RabbitMQ** — fora da V1; se abordado no futuro, não modelar como tool síncrona convencional sem análise arquitetural específica.
 - Cliente/subcliente, telemetria e ordens de serviço dentro da tool composta `get_vehicle_operational_context` (escopo dela é só cadastro + equipamento + localização).
+- **US-032** (consultar usuários, Epic 9) — bloqueada por **GAP-018**: o `openapi.json` documenta este endpoint sob `oauth2Password` + escopo `Integracao`, combinação atípica frente ao modelo híbrido (Seção 6.1). Não implementar até a Engenharia confirmar qual modelo de autenticação se aplica de fato.
+- **US-038** (consultar fornecedores, Epic 10) — bloqueada por **GAP-019**: path do endpoint foi inferido de um trecho truncado do `openapi.json`, não confirmado. Não implementar até confirmação do path exato.
+- **US-043** (documentos de pagamento/KYC, Epic 11) — bloqueada: requer justificativa de caso de uso aprovada por Produto e revisão explícita de Segurança antes de qualquer código, mesmo sendo leitura.
+- **Epic 12** (Orchestrator, Realtime/SSE, Importer, Videotelemetry) — nenhuma User Story foi gerada; não inventar tools para esses domínios.
+- Domínios sem endpoint de leitura confirmado: Finanças, RecoveryCases, Casualties (leitura) — nenhuma tool deve ser criada para eles nesta fase.
 - Qualquer tool não listada nas specs da pasta `Claude Code / Specs`.
 
 ---
 
-## 10. Itens de Engineering Discovery ainda abertos (não bloqueantes, mas relevantes ao codificar)
+## 10. Itens de Engineering Discovery ainda abertos (relevantes ao codificar)
 
-- **ED-01** — Paginação real por endpoint ainda não mapeada exaustivamente; ao implementar cada adapter, documentar o comportamento real encontrado.
-- **ED-02** — Autenticação combinada em `get_vehicle_operational_context` (US-029) ainda não validada em homologação. Implementar de forma defensiva: assumir que o comportamento de cache/renovação de token pode precisar de ajuste após os testes.
+- **ED-01** — Paginação real por endpoint ainda não mapeada exaustivamente; ao implementar cada adapter, documentar o comportamento real encontrado (ver Seção 7).
+- **ED-02** — Autenticação combinada em `get_vehicle_operational_context` (US-029) ainda não validada em homologação. Implementar de forma defensiva.
+- **ED-ID-01** (bloqueante para Epic 10 e para migrar Epic 3/5 ao modelo delegado) — fluxo exato de emissão do token delegado ainda não definido.
+- **ED-ID-02, ED-ID-03, ED-ID-04** — estrutura de identidade de sessão, múltiplos escopos por sessão, suporte a refresh token — todos abertos, não bloqueantes para o que já está implementado.
 
-Esses itens não impedem a implementação, mas o código para essas áreas deve ser escrito para acomodar ajuste posterior — não travar em suposições como se fossem definitivas.
+Esses itens não impedem a implementação do que já está desbloqueado (ex.: Epic 9 exceto US-032), mas o código para as áreas afetadas deve ser escrito para acomodar ajuste posterior — não travar em suposições como se fossem definitivas.
 
 ---
 
 ## 11. Onde encontrar o resto
 
-- Specs de cada User Story (endpoint exato, contrato de entrada/saída, critérios de aceite): pasta **Claude Code / Specs** no Notion do projeto.
-- Decisões técnicas completas com racional: **Technical Brief - Getrak Core MCP** no Notion.
-- Requisitos de produto, personas, journeys, métricas: **PRD - Getrak Core MCP** no Notion.
+- Specs de cada User Story (endpoint exato, contrato de entrada/saída, critérios de aceite): pasta **Claude Code / Specs** no Notion do projeto (48 documentos, US-001 a US-048).
+- Decisões técnicas completas com racional: **Technical Brief - Getrak Core MCP** no Notion (inclui TD-05 e o documento de Engenharia "Arquitetura de Identidade, Autenticação, Autorização e Credenciais").
+- Requisitos de produto, personas, journeys, métricas: **PRD - Getrak Core MCP** (v1.5) no Notion.
+- O que já foi codificado e testado: `epicsuserstoriesimplementados.md`, na raiz deste repositório.
 
 Se uma spec individual e este arquivo parecerem conflitar, este arquivo (regras transversais aprovadas) prevalece sobre suposições implícitas em qualquer spec — mas nenhum dos dois prevalece sobre o PRD ou o Technical Brief em caso de conflito real. Nesse caso, pare e sinalize a inconsistência em vez de escolher um lado.
