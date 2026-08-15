@@ -26,6 +26,8 @@ export interface AuditRecord {
   result: AuditResult;
   status?: number;
   duration_ms: number;
+  /** CLAUDE.md Seção 8: distingue token delegado (US-046) de credencial técnica (US-001). */
+  auth_scheme?: "delegated_user" | "technical_client";
   affected_entities?: string[];
   error_code?: string;
   timestamp: string;
