@@ -17,20 +17,20 @@ Não invente endpoints, schemas, regras de negócio ou capacidades que não este
 
 ## 0. Estado atual da implementação (atualizado 15/08/2026)
 
-**Já implementado, testado e mergeado em `main` (PRs #1 e #2):**
+**Já implementado, testado e mergeado em `main` (PRs #1, #2 e #4):**
 - Epic 1 — Fundação (US-001 a US-007): infraestrutura transversal completa.
 - Epic 2 — Veículos (US-008 a US-012): 5 tools, `oauth2ClientCredentials`/`Integracao` — **ainda não testadas contra produção** (sem credencial desse tipo disponível até o momento).
 - Epic 3 — Localização (US-013 a US-019): 7 tools, `oauth2Password` — **todas testadas contra produção real**. Três bugs reais encontrados e corrigidos (ver Seção 7).
 - Epic 4 — Equipamentos (US-020, US-021): 2 tools, `oauth2ClientCredentials`/`Integracao` — não testadas contra produção.
 - Epic 5 — Ordens de Serviço (US-022 a US-025): 4 tools, implementadas com `oauth2ClientCredentials` mas **testadas via `oauth2Password`** — decisão de qual esquema usar em produção real segue em aberto (ver Seção 6.3).
+- **Epic 9 — Clientes, Subclientes, Perfis e Centrais (US-030, US-031, US-033, US-034): 4 tools, `oauth2ClientCredentials`/`Integracao` — ainda não testadas contra produção** (mesma limitação de credencial do Epic 2/4). US-032 (usuários) **não** foi implementada — segue bloqueada por GAP-018. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo decisões de nomenclatura e divergências encontradas.
 
-Total: 23 tools MCP registradas, 131 testes automatizados.
+Total: 27 tools MCP registradas, 151 testes automatizados.
 
 **Ainda não implementado:**
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo desta fase.
-- **Epic 9 (US-030 a US-034)** — Clientes, Subclientes, Usuários e Perfis. **Novo em 15/08/2026.** Endpoints todos `oauth2ClientCredentials`/`Integracao`, mesmo padrão de auth já implementado em Epic 2/4 — não depende do modelo híbrido de identidade (Seção 6) para ser codificado.
-- **Epic 10 (US-035 a US-042)** — domínios internos Getrak Web (acessórios, integrações, perímetros). **Novo em 15/08/2026.** Todos `oauth2Password`/`GetrakWeb` — **bloqueado** até o fluxo de token delegado (US-046 a US-048) estar implementado e validado, o que por sua vez depende de ED-ID-01 (ver Seção 6.2).
+- **Epic 10 (US-035 a US-042)** — domínios internos Getrak Web (acessórios, integrações, perímetros). Todos `oauth2Password`/`GetrakWeb` — **bloqueado** até o fluxo de token delegado (US-046 a US-048) estar implementado e validado, o que por sua vez depende de ED-ID-01 (ver Seção 6.2).
 - **Epic 11 (US-043)** — consulta de documentos de pagamento/KYC. **Bloqueado**: requer aprovação explícita de Produto e revisão de Segurança antes de qualquer código, mesmo sendo leitura.
 - US-032 (dentro do Epic 9) — **bloqueada individualmente** por GAP-018 (ver Seção 9).
 - US-038 (dentro do Epic 10) — **bloqueada individualmente** por GAP-019, path não confirmado (ver Seção 9).
