@@ -84,6 +84,8 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 - `id_veiculo` é `string` em `/v0.2/clientes/integracao` (US-030) mas `integer` em `/v0.2/subclientes/integracao` (US-031) — tipos reais diferentes para o mesmo filtro conceitual; cada tool segue o tipo do seu próprio endpoint.
 - Nome do parâmetro de limite de paginação varia dentro do próprio épico: `limit` em clientes/subclientes, `limite` em perfis (mesma heterogeneidade já prevista em ED-01).
 
+**Risco de isolamento por central sinalizado em `get_centrals` (achado ao ler a spec de US-034, não visível apenas pelo `openapi.json`):** o AC de US-034 exige que a tool "respeite o isolamento (RF03)", mas o endpoint não aceita nenhum parâmetro para filtrar por central, e a spec de US-001 descreve a credencial técnica como resolvida "por ambiente" — não confirma que seja também central-scoped. O guard de isolamento do MCP (US-002) só valida a central de *entrada* contra a lista autorizada do consumidor; não filtra o *conteúdo* da resposta. Ou seja, se a credencial técnica não for central-scoped na API Core, `get_centrals` pode retornar centrais além da autorizada. Discutido com Diego (dono do produto) em 15/08/2026: decisão foi **manter a tool como está nesta rodada, documentando o risco** (comentário no código-fonte + `warnings` na resposta da tool) em vez de bloquear ou filtrar às cegas — aguardando confirmação da Engenharia sobre o escopo real da credencial técnica antes de resolver definitivamente. Não abrir mão desse sinalizador silenciosamente em trabalho futuro sobre esta tool.
+
 ---
 
 ## Ainda não implementado

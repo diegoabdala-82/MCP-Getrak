@@ -23,6 +23,27 @@
  * não sendo enviado ao endpoint — mesmo tratamento de get_vehicle_category e
  * get_equipment_bench_position, que também não repassam central ao endpoint
  * real por ele não o aceitar.
+ *
+ * RISCO DE ISOLAMENTO SINALIZADO (US-002/US-034, não resolvido nesta PR —
+ * decisão explícita de manter e documentar, não corrigir silenciosamente):
+ * o AC de US-034 exige que esta tool "respeite o isolamento (RF03)", mas o
+ * endpoint real não aceita nenhum parâmetro para filtrar por central (ver
+ * acima). US-001 descreve a credencial técnica como resolvida "por
+ * ambiente", não "por central" — ou seja, não há confirmação de que a
+ * credencial `oauth2ClientCredentials` seja central-scoped. O guard de
+ * isolamento do MCP (`CentralAuthorizationGuard`, US-002) só valida a
+ * central de ENTRADA contra a lista autorizada do consumidor antes da
+ * chamada — ele não filtra o CONTEÚDO da resposta. Na prática, isso
+ * significa que a resposta desta tool pode incluir centrais além da
+ * solicitada/autorizada, caso a credencial não seja central-scoped no lado
+ * da API Core. Não implementamos filtragem client-side por central porque o
+ * mapeamento entre os campos da resposta (`id_central`, `site_sis`) e o
+ * identificador de central usado nas demais tools não está confirmado —
+ * filtrar às cegas poderia tanto vazar dados quanto descartar dados
+ * legítimos. Sinalizado explicitamente via `warnings` na resposta; decisão
+ * de manter assim (vs. bloquear/filtrar) validada com o dono do produto —
+ * aguardando confirmação da Engenharia sobre o escopo real da credencial
+ * técnica antes de resolver definitivamente.
  */
 
 import { z } from "zod";
@@ -79,6 +100,11 @@ export function createGetCentralsTool(
       return {
         data: { centrals: items.map(normalizeItem), pagination: meta },
         endpoints: [SOURCE_ENDPOINT],
+        warnings: [
+          "This tool cannot filter results by central at the source (the endpoint accepts no request " +
+            "parameters); the response may include centrals beyond the one requested if the technical " +
+            "credential is not central-scoped (unconfirmed — see US-001/US-002).",
+        ],
       };
     },
   };

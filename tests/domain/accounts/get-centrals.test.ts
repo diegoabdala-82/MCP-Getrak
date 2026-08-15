@@ -15,6 +15,15 @@ describe("US-034 — get_centrals", () => {
     expect(result.endpoints).toEqual(["GET /v0.2/centrais/integracao"]);
   });
 
+  it("sinaliza o risco de isolamento por central via warnings (US-002/US-034 — endpoint não filtra por central)", async () => {
+    const fake = createFakeApiCoreClient([]);
+    const { definition } = createGetCentralsTool({ apiCoreClient: fake.client });
+    const result = await definition.handler(definition.inputSchema.parse({ central: "central-1" }), ctx);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("cannot filter results by central at the source"),
+    ]);
+  });
+
   it("não envia nenhum query param (endpoint real não aceita nenhum)", async () => {
     const fake = createFakeApiCoreClient([]);
     const { definition } = createGetCentralsTool({ apiCoreClient: fake.client });
