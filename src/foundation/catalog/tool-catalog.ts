@@ -15,6 +15,9 @@ export const TOOL_DOMAINS = [
   "equipments",
   "work_orders",
   "accounts",
+  "accessories",
+  "integrations",
+  "perimeters",
   "telemetry",
   "webhooks",
 ] as const;

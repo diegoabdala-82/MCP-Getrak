@@ -14,6 +14,18 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 | Status | ✅ Implementado e testado. Mergeado em `main`. |
 | Testado contra produção | N/A (infraestrutura transversal, sem chamada direta a endpoint de negócio). |
 
+### Extensão — Identidade delegada (US-046, US-047, US-048)
+
+| Item | Componente | Status |
+|---|---|---|
+| US-046 — token delegado por sessão do usuário | `DelegatedTokenManager` + `UserCredentialsProvider` (Env/AWS Secrets Manager) | ✅ Implementado e testado (mocks/contrato) |
+| US-047 — Auth Profile Registry | `assertNoForbiddenAuthParams` (rejeita `scope`/`auth_profile`/`credential_id` transversalmente no `ToolRuntime`) | ✅ Implementado e testado |
+| US-048 — cache em dois namespaces | `buildDelegatedTokenNamespace` (novo, distinto do namespace técnico já existente) | ✅ Implementado e testado |
+
+**Status:** ✅ Implementado em 15/08/2026, testado isoladamente (23 testes de fundação) antes de iniciar o Epic 10, que a consome pela primeira vez. Endpoint de emissão confirmado: `POST /newkoauth/oauth/token` (OAuth2 Password Grant padrão). Falha de credencial de usuário inválida/expirada normalizada em `USER_CREDENTIAL_INVALID` (não retryable). Epic 3/5 (já implementados com `oauth2Password`, modelo antigo de credencial técnica por ambiente) **não foram migrados** para este fluxo — decisão explícita desta tarefa, tratamento futuro como item de trabalho separado.
+
+**ED-ID-05/06 implementados com o mínimo necessário para homologação, não como decisão fechada de produto:** credencial do usuário coletada uma vez na configuração da conexão MCP (variável de ambiente por usuário em dev local; um segredo por usuário no AWS Secrets Manager em produção) — sem UI de login, conforme instruído. Revisitar antes de expor a usuários reais em produção (ver `CLAUDE.md` Seção 10).
+
 ## Epic 2 — Veículos (US-008 a US-012)
 
 | Tool | User Story | Endpoint | Auth | Testado contra produção |
@@ -88,12 +100,42 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 10 — Domínios internos Getrak Web (US-035, US-036, US-037, US-039, US-040, US-041, US-042)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_accessories` | US-035 | `GET /v1.0/accessories` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `search_accessory_categories` | US-036 | `GET /v1.0/accessories/categories` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `get_accessories_summary` | US-037 | `GET /v1.0/accessories/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `search_central_integrations` | US-039 | `GET /v1.0/integrations` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `search_geofences` | US-040 | `GET /v1.0/perimeters/geofences` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `search_perimeter_categories` | US-041 | `GET /v1.0/perimeters/categories` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `search_reference_points` | US-042 | `GET /v1.0/perimeters/reference-points` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+
+**Status:** ✅ 7 tools implementadas e testadas (mocks/contrato), 38 testes automatizados novos (213 no total). Todas usam o fluxo de token delegado (US-046/047/048) implementado nesta mesma tarefa — **nenhuma credencial de usuário real de teste em homologação disponível até o momento**; validação contra produção real pendente, mesmo padrão já sinalizado para Epic 2/4/9.
+
+**Nomenclatura ajustada:** a spec sugeriu prefixo `list_` para 5 das 7 tools (`list_accessory_categories`, `list_central_integrations`, `list_geofences`, `list_perimeter_categories`, `list_reference_points`); renomeadas para `search_*` — todas têm filtros reais por campo (name/status/is_active/type/client_id etc.), mesma convenção já aplicada em Epic 9. `search_accessories` e `get_accessories_summary` mantiveram os nomes sugeridos (já se encaixavam na convenção: filtro real e nenhum parâmetro, respectivamente).
+
+**Domínios no catálogo MCP:** 3 novos domínios — `accessories` (US-035/036/037), `integrations` (US-039), `perimeters` (US-040/041/042) — nomes não definidos em spec, escolhidos por entidade de negócio.
+
+**Excluída desta rodada:** US-038 (consultar fornecedores) — bloqueada por **GAP-019** (path do endpoint inferido de um trecho truncado do `openapi.json`, não confirmado).
+
+**Decisão sobre acesso por papel (US-040/US-042):** a documentação da API Core indica que ADMIN/OPERADOR veem todos os registros da central, enquanto CLIENTE/SUBCLIENTE veem apenas os associados à própria empresa — mas o mecanismo pelo qual o MCP obteria o papel do usuário autenticado não está definido em nenhuma fonte disponível (nem PRD, nem Technical Brief, nem a resposta do endpoint de emissão de token). **Decisão tomada:** o MCP não implementa filtragem própria por papel — a API Core já aplica essa regra do lado dela; o MCP apenas repassa o resultado já filtrado (opção (b) da tarefa). Nenhuma lógica de papel foi adicionada.
+
+**Divergências/achados documentados durante a implementação** (não decididos silenciosamente — ver comentários nos arquivos-fonte para o detalhe completo):
+- Nenhum dos 7 endpoints aceita `sistema`/central como parâmetro de request (diferente de Epic 2/4/9) — a identidade do usuário Getrak (token delegado) já é inerentemente ligada a uma central; `central` continua exigido como parâmetro de entrada da tool (gate de autorização + chave do cache de token), mas nunca repassado ao endpoint.
+- `fields[]`/`include[]` têm comportamento real heterogêneo entre endpoints do mesmo épico: em `/v1.0/integrations` são `explode:false` (um único valor separado por vírgula); em `/v1.0/perimeters/*` são repetidos (`fields[]=id&fields[]=name`, default explode=true); em `/v1.0/accessories`, `fields[]` é uma string única (não um array), formato ainda diferente dos dois anteriores. Cada tool trata o formato real do seu próprio endpoint.
+- `GET /v1.0/integrations` retorna `credentials.token` (token de acesso de um provedor externo) nos itens de integração — dado sensível repassado como retornado pela API Core (mesmo tratamento de `cnpj`/`email` no Epic 9: mascarado só na auditoria, não na resposta ao consumidor autorizado). A tool expõe `fields` para que o consumidor restrinja os campos retornados, se preferir.
+- Todos os 7 endpoints confirmadamente devolvem paginação real (`{data, page, pages, total}`), diferente da estimativa (`has_more`) usada em Epic 2-9 — `total_items`/`has_more` são exatos aqui.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
 - US-032 (Epic 9) — bloqueada por GAP-018 (ver acima).
-- Epic 10 (US-035 a US-042) — bloqueado por ED-ID-01 (fluxo de token delegado ainda não implementado).
+- US-038 (Epic 10) — bloqueada por GAP-019 (ver acima).
 - Epic 11 (US-043) — bloqueado por aprovação de Produto/Segurança.
 - Epic 12 — nenhuma User Story gerada.
 
