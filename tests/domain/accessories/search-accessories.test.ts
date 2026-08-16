@@ -44,7 +44,7 @@ describe("US-035 — search_accessories", () => {
           "filters[search][inc]": "chip",
           "order[name]": "DESC",
           page: 2,
-          perPage: 10,
+          per_page: 10,
         },
         central: "central-1",
         authScheme: "oauth2Password",

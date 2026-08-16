@@ -30,7 +30,7 @@ describe("US-036 — search_accessory_categories", () => {
     expect(fake.get).toHaveBeenCalledWith(
       expect.objectContaining({
         path: "/v1.0/accessories/categories",
-        query: { "filters[name][inc]": "Rastr", page: 1, perPage: 50 },
+        query: { "filters[name][inc]": "Rastr", page: 1, per_page: 50 },
         authScheme: "oauth2Password",
       }),
     );

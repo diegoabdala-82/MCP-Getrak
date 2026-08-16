@@ -2,7 +2,7 @@
  * US-039 — Listar integrações de central.
  * Endpoint: GET /v1.0/integrations (v1.0, vigente, oauth2Password/GetrakWeb
  * — token delegado). Confirmado contra reference/openapi.json: query params
- * reais `page, perPage, fields[] (array, style=form/explode=false -> um
+ * reais `page, per_page, fields[] (array, style=form/explode=false -> um
  * único valor separado por vírgula, ex.: "id,central,status" — diferente de
  * search-geofences.ts, onde fields[] é repetido, não comma-joined; mesma
  * heterogeneidade real já vista em Epic 2/9/ED-01), include[] (idem,
@@ -82,7 +82,7 @@ export function createSearchCentralIntegrationsTool(
     inputSchema: searchCentralIntegrationsInputSchema,
     getCentral: (input) => input.central,
     handler: async (input, ctx) => {
-      const upstreamPagination = buildPagePerPagePagination(input, "perPage");
+      const upstreamPagination = buildPagePerPagePagination(input, "per_page");
       const sortQuery = input.sort_by ? { [`order[${input.sort_by}]`]: input.sort_direction ?? "asc" } : {};
 
       const raw = await callGetrakWebEndpoint<unknown>({

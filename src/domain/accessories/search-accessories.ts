@@ -2,7 +2,7 @@
  * US-035 — Buscar acessórios cadastrados.
  * Endpoint: GET /v1.0/accessories (v1.0, vigente, oauth2Password/GetrakWeb
  * — token delegado). Confirmado contra reference/openapi.json: query params
- * reais `page, perPage, fields[] (string única, ex.: "quantity,id,created_at"
+ * reais `page, per_page, fields[] (string única, ex.: "quantity,id,created_at"
  * — diferente de outros endpoints do mesmo Epic 10 em que fields[] é um
  * array real repetido, ver search-geofences.ts), order[category|name|sku|
  * quantity|unit|status|min|max] (cada um ASC/DESC), filters[search][inc]`
@@ -55,7 +55,7 @@ export function createSearchAccessoriesTool(
     inputSchema: searchAccessoriesInputSchema,
     getCentral: (input) => input.central,
     handler: async (input, ctx) => {
-      const upstreamPagination = buildPagePerPagePagination(input, "perPage");
+      const upstreamPagination = buildPagePerPagePagination(input, "per_page");
       const sortQuery = input.sort_by ? { [`order[${input.sort_by}]`]: input.sort_direction ?? "ASC" } : {};
 
       const raw = await callGetrakWebEndpoint<unknown>({

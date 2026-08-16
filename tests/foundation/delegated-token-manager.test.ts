@@ -37,8 +37,19 @@ describe("US-046/047/048 — DelegatedTokenManager", () => {
 
     expect(token).toBe("delegated-token-1");
     expect(fetchToken).toHaveBeenCalledWith(
-      expect.objectContaining({ auth_scheme: "oauth2Password", username: "diego.abdala", password: "user-pass" }),
+      expect.objectContaining({ auth_scheme: "oauth2Password", username: "diego.abdala@central-1", password: "user-pass" }),
     );
+  });
+
+  it("compõe o username como {username}@{central} (confirmado contra chamada real, 16/08/2026) — não o login isolado", async () => {
+    const provider = new EnvUserCredentialsProvider(fakeUserEnv());
+    const cache = new InMemoryTokenCache();
+    const fetchToken = vi.fn().mockResolvedValue({ access_token: "t", expires_in: 3600 });
+    const manager = new DelegatedTokenManager(provider, cache, { fetchToken });
+
+    await manager.getAccessToken({ environment: "homologation", central: "apresentacao", userId: "claude-code" });
+
+    expect(fetchToken).toHaveBeenCalledWith(expect.objectContaining({ username: "diego.abdala@apresentacao" }));
   });
 
   it("isola o cache no namespace delegado mcp:{environment}:{central}:oauth2Password:{user_id}:{session_id}", () => {

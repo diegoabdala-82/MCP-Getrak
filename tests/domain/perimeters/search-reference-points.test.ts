@@ -43,7 +43,7 @@ describe("US-042 — search_reference_points", () => {
           "filters[name][inc]": "Matriz",
           "filters[is_active]": "Y",
           page: 1,
-          perPage: 50,
+          per_page: 50,
         },
         authScheme: "oauth2Password",
       }),

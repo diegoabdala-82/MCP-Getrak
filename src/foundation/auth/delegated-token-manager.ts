@@ -10,15 +10,15 @@
  * `AuthManager` — uma nova tentativa após expiração do cache já É a
  * renovação exigida pelo AC de US-046 (não precisa de retry-loop dedicado).
  *
- * `central` faz parte do namespace de cache (US-048), mesmo o token em si
- * não variando por central (o endpoint de emissão `/newkoauth/oauth/token`
- * não recebe `central`/`sistema` no corpo — a identidade do usuário Getrak
- * já é inerentemente ligada a uma central por natureza da conta). Na
- * prática isso significa que o mesmo usuário operando sob duas centrais
- * diferentes terá dois tokens idênticos cacheados sob duas chaves
- * distintas — não incorreto, apenas não ótimo. Mantido assim por ser
- * exatamente o formato de namespace mandatado pela spec de US-048;
- * sinalizado aqui, não corrigido silenciosamente.
+ * `central` faz parte do namespace de cache (US-048) — e, ao contrário do
+ * que uma versão anterior deste comentário presumia, o token REALMENTE
+ * varia por central: confirmado contra uma chamada real fornecida pelo
+ * time (16/08/2026), o `username` enviado ao endpoint de emissão é o
+ * composto `{username}@{central}`, não o login isolado. Ou seja, a mesma
+ * pessoa em duas centrais diferentes é, do ponto de vista da API Core,
+ * duas identidades OAuth distintas — o namespace por central não é só
+ * isolamento de cache, é correção (tokens de centrais diferentes não são
+ * intercambiáveis).
  */
 
 import type { Environment } from "../../config/environment.js";
@@ -82,7 +82,10 @@ export class DelegatedTokenManager {
         auth_scheme: "oauth2Password",
         client_id: credential.client_id,
         client_secret: credential.client_secret,
-        username: credential.username,
+        // Confirmado contra chamada real (16/08/2026): o endpoint espera
+        // `{username}@{central}`, não o login isolado — ver comentário no
+        // topo do arquivo.
+        username: `${credential.username}@${params.central}`,
         password: credential.password,
         token_url: credential.token_url,
       });

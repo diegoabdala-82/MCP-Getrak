@@ -2,7 +2,7 @@
  * US-042 — Consultar pontos de referência.
  * Endpoint: GET /v1.0/perimeters/reference-points (v1.0, vigente,
  * oauth2Password/GetrakWeb — token delegado). Confirmado contra
- * reference/openapi.json: query params reais `page, perPage, fields[]`
+ * reference/openapi.json: query params reais `page, per_page, fields[]`
  * (array real, repetido, default id/name quando omitido), `include[]`
  * (array, valor único documentado "category"), `order[name]`, `order[id]`
  * (ASC/DESC), `filters[name]` (exato), `filters[name][inc]` (contém),
@@ -78,7 +78,7 @@ export function createSearchReferencePointsTool(
     inputSchema: searchReferencePointsInputSchema,
     getCentral: (input) => input.central,
     handler: async (input, ctx) => {
-      const upstreamPagination = buildPagePerPagePagination(input, "perPage");
+      const upstreamPagination = buildPagePerPagePagination(input, "per_page");
       const sortQuery = input.sort_by ? { [`order[${input.sort_by}]`]: input.sort_direction ?? "ASC" } : {};
 
       const raw = await callGetrakWebEndpoint<unknown>({

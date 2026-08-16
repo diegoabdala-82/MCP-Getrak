@@ -104,15 +104,17 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 | Tool | User Story | Endpoint | Auth | Testado contra produção |
 |---|---|---|---|---|
-| `search_accessories` | US-035 | `GET /v1.0/accessories` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
-| `search_accessory_categories` | US-036 | `GET /v1.0/accessories/categories` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
-| `get_accessories_summary` | US-037 | `GET /v1.0/accessories/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
-| `search_central_integrations` | US-039 | `GET /v1.0/integrations` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
-| `search_geofences` | US-040 | `GET /v1.0/perimeters/geofences` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
-| `search_perimeter_categories` | US-041 | `GET /v1.0/perimeters/categories` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
-| `search_reference_points` | US-042 | `GET /v1.0/perimeters/reference-points` | `oauth2Password`/`GetrakWeb` (delegado) | ❌ Não |
+| `search_accessories` | US-035 | `GET /v1.0/accessories` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
+| `search_accessory_categories` | US-036 | `GET /v1.0/accessories/categories` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
+| `get_accessories_summary` | US-037 | `GET /v1.0/accessories/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
+| `search_central_integrations` | US-039 | `GET /v1.0/integrations` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
+| `search_geofences` | US-040 | `GET /v1.0/perimeters/geofences` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
+| `search_perimeter_categories` | US-041 | `GET /v1.0/perimeters/categories` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
+| `search_reference_points` | US-042 | `GET /v1.0/perimeters/reference-points` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (16/08/2026) |
 
-**Status:** ✅ 7 tools implementadas e testadas (mocks/contrato), 38 testes automatizados novos (213 no total). Todas usam o fluxo de token delegado (US-046/047/048) implementado nesta mesma tarefa — **nenhuma credencial de usuário real de teste em homologação disponível até o momento**; validação contra produção real pendente, mesmo padrão já sinalizado para Epic 2/4/9.
+**Status:** ✅ 7 tools implementadas e testadas (mocks/contrato + validação real), 44 testes automatizados novos (219 no total). Todas usam o fluxo de token delegado (US-046/047/048).
+
+**Validado contra produção real em 16/08/2026** — credencial de usuário real de teste fornecida pelo dono do produto (central de demonstração), servidor MCP subido via stdio real (`Client`/`StdioClientTransport` do `@modelcontextprotocol/sdk`, spawn real de `src/index.ts`) contra `https://api.getrak.com`. Todas as 7 tools retornaram dados reais com sucesso (ex.: `get_accessories_summary` → `{skus: 13, categories: 4}`; `search_geofences` → 358 geofences reais na central; `search_reference_points` → 1243 pontos). Quatro discrepâncias reais encontradas e corrigidas nesse processo (ver abaixo) — nenhuma foi assumida ou "corrigida" sem confirmação empírica. Credenciais reais usadas no teste nunca foram commitadas neste repositório (env vars efêmeras só durante o teste manual).
 
 **Nomenclatura ajustada:** a spec sugeriu prefixo `list_` para 5 das 7 tools (`list_accessory_categories`, `list_central_integrations`, `list_geofences`, `list_perimeter_categories`, `list_reference_points`); renomeadas para `search_*` — todas têm filtros reais por campo (name/status/is_active/type/client_id etc.), mesma convenção já aplicada em Epic 9. `search_accessories` e `get_accessories_summary` mantiveram os nomes sugeridos (já se encaixavam na convenção: filtro real e nenhum parâmetro, respectivamente).
 
@@ -127,6 +129,12 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 - `fields[]`/`include[]` têm comportamento real heterogêneo entre endpoints do mesmo épico: em `/v1.0/integrations` são `explode:false` (um único valor separado por vírgula); em `/v1.0/perimeters/*` são repetidos (`fields[]=id&fields[]=name`, default explode=true); em `/v1.0/accessories`, `fields[]` é uma string única (não um array), formato ainda diferente dos dois anteriores. Cada tool trata o formato real do seu próprio endpoint.
 - `GET /v1.0/integrations` retorna `credentials.token` (token de acesso de um provedor externo) nos itens de integração — dado sensível repassado como retornado pela API Core (mesmo tratamento de `cnpj`/`email` no Epic 9: mascarado só na auditoria, não na resposta ao consumidor autorizado). A tool expõe `fields` para que o consumidor restrinja os campos retornados, se preferir.
 - Todos os 7 endpoints confirmadamente devolvem paginação real (`{data, page, pages, total}`), diferente da estimativa (`has_more`) usada em Epic 2-9 — `total_items`/`has_more` são exatos aqui.
+
+**Quatro discrepâncias reais encontradas e corrigidas na validação contra produção (16/08/2026)** — nenhuma inferida do `openapi.json` sozinho, todas confirmadas empiricamente:
+1. **Formato do corpo da emissão de token:** `POST /newkoauth/oauth/token` para o escopo `GetrakWeb` exige `multipart/form-data`, não `application/x-www-form-urlencoded` (o formato já usado pelo modelo técnico de Epic 3/5, que continua correto para aquele fluxo — não alterado). Criado `MultipartFormOAuth2Client`, usado exclusivamente pelo `DelegatedTokenManager`.
+2. **Composição do `username`:** o valor enviado precisa ser `{username}@{central}`, não o login isolado — a central faz parte da identidade OAuth do usuário, não é só contexto do MCP. Corrigido em `DelegatedTokenManager.getAccessToken` (o valor é composto ali, não armazenado pré-composto na credencial).
+3. **`client_id`/`client_secret` do escopo `GetrakWeb`:** são credenciais reais da aplicação, obtidas com o time (não documentadas no `openapi.json`) — o exemplo `dev`/`dev` do bloco `servers` do `openapi.json` foi testado e rejeitado com 401 antes da credencial real ser fornecida. Credenciais reais nunca são commitadas neste repositório.
+4. **Nome do parâmetro de paginação:** as 6 tools paginadas deste épico enviavam `perPage` como chave de query — mas isso é o identificador do `$ref` em `components/parameters` do `openapi.json`, não o nome real do parâmetro (que é `per_page`, conforme o campo `name` dentro da própria definição do parâmetro). A API real ignorava silenciosamente `perPage` (parâmetro desconhecido) e aplicava seu próprio tamanho de página padrão, independente do `page_size` pedido — um bug real de implementação (confundir o identificador do `$ref` com o nome do parâmetro), não uma ambiguidade de documentação. Corrigido nos 6 arquivos; confirmado empiricamente que `page_size` agora é respeitado exatamente.
 
 ---
 

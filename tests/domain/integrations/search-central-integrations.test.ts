@@ -53,7 +53,7 @@ describe("US-039 — search_central_integrations", () => {
           "filters[status][eq]": "active",
           "order[created_at]": "desc",
           page: 1,
-          perPage: 50,
+          per_page: 50,
         },
         authScheme: "oauth2Password",
       }),

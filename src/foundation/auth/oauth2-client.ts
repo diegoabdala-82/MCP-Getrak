@@ -35,7 +35,7 @@ export class TokenRequestFailedError extends Error {
   }
 }
 
-function buildBasicAuthHeader(clientId: string, clientSecret: string): string {
+export function buildBasicAuthHeader(clientId: string, clientSecret: string): string {
   const credentials = `${clientId}:${clientSecret}`;
   return `Basic ${Buffer.from(credentials, "utf8").toString("base64")}`;
 }

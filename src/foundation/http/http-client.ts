@@ -16,18 +16,29 @@ export interface HttpRequestOptions {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   url: string;
   headers?: Record<string, string>;
-  /** String (enviado como-está, ex.: form-urlencoded) ou objeto (serializado como JSON). */
-  body?: string | Record<string, unknown>;
+  /**
+   * String (enviado como-está, ex.: form-urlencoded), objeto (serializado
+   * como JSON) ou `FormData` (multipart/form-data — ex.: endpoint de token
+   * delegado `POST /newkoauth/oauth/token`, confirmado contra chamada real
+   * que exige `multipart/form-data`, não `application/x-www-form-urlencoded`,
+   * ver `multipart-oauth2-client.ts`). `FormData` é repassado como-está para
+   * o `fetch` nativo, que define o `Content-Type`/boundary sozinho — nunca
+   * definir `Content-Type` manualmente ao enviar `FormData`.
+   */
+  body?: string | Record<string, unknown> | FormData;
   timeoutMs?: number;
 }
 
 export type FetchLike = typeof fetch;
 
-function serializeBody(body: HttpRequestOptions["body"]): string | undefined {
+function serializeBody(body: HttpRequestOptions["body"]): string | FormData | undefined {
   if (body === undefined) {
     return undefined;
   }
-  return typeof body === "string" ? body : JSON.stringify(body);
+  if (typeof body === "string" || body instanceof FormData) {
+    return body;
+  }
+  return JSON.stringify(body);
 }
 
 export async function fetchWithTimeout(

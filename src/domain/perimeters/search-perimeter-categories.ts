@@ -2,7 +2,7 @@
  * US-041 — Consultar categorias de perímetro.
  * Endpoint: GET /v1.0/perimeters/categories (v1.0, vigente,
  * oauth2Password/GetrakWeb — token delegado). Confirmado contra
- * reference/openapi.json: query params reais `page, perPage, fields[]`
+ * reference/openapi.json: query params reais `page, per_page, fields[]`
  * (array real, repetido — default explode=true, mesmo padrão de
  * search-geofences.ts), default id/name/type quando omitido; `order[name]`,
  * `order[id]` (ASC/DESC); `filters[name]` (exato), `filters[name][inc]`
@@ -73,7 +73,7 @@ export function createSearchPerimeterCategoriesTool(
     inputSchema: searchPerimeterCategoriesInputSchema,
     getCentral: (input) => input.central,
     handler: async (input, ctx) => {
-      const upstreamPagination = buildPagePerPagePagination(input, "perPage");
+      const upstreamPagination = buildPagePerPagePagination(input, "per_page");
       const sortQuery = input.sort_by ? { [`order[${input.sort_by}]`]: input.sort_direction ?? "ASC" } : {};
 
       const raw = await callGetrakWebEndpoint<unknown>({

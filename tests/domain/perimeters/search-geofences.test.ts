@@ -40,7 +40,7 @@ describe("US-040 — search_geofences", () => {
           "filters[is_active]": "Y",
           "order[name]": "ASC",
           page: 1,
-          perPage: 50,
+          per_page: 50,
         },
         authScheme: "oauth2Password",
       }),

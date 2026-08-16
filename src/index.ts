@@ -15,6 +15,7 @@ import { AwsSecretsManagerProvider } from "./foundation/auth/aws-secrets-provide
 import { AwsUserCredentialsProvider } from "./foundation/auth/aws-user-credentials-provider.js";
 import { AuthManager } from "./foundation/auth/auth-manager.js";
 import { DelegatedTokenManager } from "./foundation/auth/delegated-token-manager.js";
+import { MultipartFormOAuth2Client } from "./foundation/auth/multipart-oauth2-client.js";
 import { HttpOAuth2Client } from "./foundation/auth/oauth2-client.js";
 import { createRedisClient } from "./foundation/auth/redis-client-factory.js";
 import { RedisTokenCache } from "./foundation/auth/redis-token-cache.js";
@@ -57,12 +58,16 @@ async function main() {
 
   // US-046/047/048: token delegado do usuário — infraestrutura separada da
   // credencial técnica acima (AuthManager), reutiliza o mesmo TokenCache
-  // (namespaces distintos, ver buildDelegatedTokenNamespace) e o mesmo
-  // OAuth2Client (Password Grant padrão contra /newkoauth/oauth/token).
+  // (namespaces distintos, ver buildDelegatedTokenNamespace). Usa
+  // `MultipartFormOAuth2Client`, não `HttpOAuth2Client` — confirmado contra
+  // chamada real que o endpoint de emissão exige multipart/form-data para
+  // o escopo GetrakWeb (ver multipart-oauth2-client.ts); o modelo técnico
+  // (Epic 3/5, não tocado) continua em x-www-form-urlencoded via
+  // HttpOAuth2Client, já validado contra produção real nesse formato.
   const delegatedTokenManager = new DelegatedTokenManager(
     buildUserCredentialsProvider(),
     tokenCache,
-    new HttpOAuth2Client(),
+    new MultipartFormOAuth2Client(),
   );
 
   const toolRuntime = new ToolRuntime(centralGuard, auditLogger);

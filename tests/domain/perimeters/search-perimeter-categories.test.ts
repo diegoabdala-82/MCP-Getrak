@@ -41,7 +41,7 @@ describe("US-041 — search_perimeter_categories", () => {
           "filters[type]": "P",
           "filters[client_id]": 42,
           page: 1,
-          perPage: 50,
+          per_page: 50,
         },
         authScheme: "oauth2Password",
       }),

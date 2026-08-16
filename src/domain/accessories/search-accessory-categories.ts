@@ -2,7 +2,7 @@
  * US-036 — Consultar categorias de acessórios.
  * Endpoint: GET /v1.0/accessories/categories (v1.0, vigente,
  * oauth2Password/GetrakWeb — token delegado). Confirmado contra
- * reference/openapi.json: query params reais `page, perPage,
+ * reference/openapi.json: query params reais `page, per_page,
  * filters[name][inc]` (busca por nome). Paginação real = page/per_page com
  * envelope `{data, page, pages, total}`.
  *
@@ -51,7 +51,7 @@ export function createSearchAccessoryCategoriesTool(
     inputSchema: searchAccessoryCategoriesInputSchema,
     getCentral: (input) => input.central,
     handler: async (input, ctx) => {
-      const upstreamPagination = buildPagePerPagePagination(input, "perPage");
+      const upstreamPagination = buildPagePerPagePagination(input, "per_page");
 
       const raw = await callGetrakWebEndpoint<unknown>({
         deps,
