@@ -26,7 +26,7 @@ Não invente endpoints, schemas, regras de negócio ou capacidades que não este
 - **Epic 9 — Clientes, Subclientes, Perfis e Centrais (US-030, US-031, US-033, US-034): 4 tools, `oauth2ClientCredentials`/`Integracao` — ainda não testadas contra produção** (mesma limitação de credencial do Epic 2/4). US-032 (usuários) **não** foi implementada — segue bloqueada por GAP-018. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo decisões de nomenclatura e divergências encontradas.
 - **Epic 10 — Domínios internos Getrak Web (US-035, US-036, US-037, US-039, US-040, US-041, US-042): 7 tools, `oauth2Password`/`GetrakWeb` via token delegado (US-046/047/048) — ainda não testadas contra produção** (nenhuma credencial de usuário real disponível até o momento). US-038 (fornecedores) **não** foi implementada — segue bloqueada por GAP-019. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo a decisão sobre acesso por papel (US-040/US-042).
 
-Total: 34 tools MCP registradas, 213 testes automatizados.
+Total: 29 tools MCP registradas, 213 testes automatizados. (Contagem de tools corrigida em 16/08/2026 — erro aritmético no total anterior, 34, detectado ao validar a descoberta real via `tools/list` num smoke test manual por stdio; a contagem por Epic acima sempre esteve correta, só a soma agregada estava errada.)
 
 **Ainda não implementado:**
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
