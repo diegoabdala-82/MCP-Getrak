@@ -1,0 +1,168 @@
+:root {
+  color-scheme: light dark;
+  --border: #3336;
+  --bg-muted: #8881;
+  --accent: #2563eb;
+  --danger: #dc2626;
+  --success: #16a34a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0;
+  padding: 0;
+  color: inherit;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.env-badge {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.15rem 0.6rem;
+  border-radius: 999px;
+  background: var(--bg-muted);
+}
+
+.env-badge.production {
+  background: var(--danger);
+  color: white;
+}
+
+main {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 0;
+  height: calc(100vh - 53px);
+}
+
+#tool-list-panel {
+  border-right: 1px solid var(--border);
+  padding: 0.75rem;
+  overflow-y: auto;
+}
+
+#tool-filter {
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+#tool-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+#tool-list li {
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-family: ui-monospace, monospace;
+}
+
+#tool-list li:hover {
+  background: var(--bg-muted);
+}
+
+#tool-list li.selected {
+  background: var(--accent);
+  color: white;
+}
+
+#tool-detail-panel {
+  padding: 1.25rem;
+  overflow-y: auto;
+}
+
+#tool-name {
+  font-family: ui-monospace, monospace;
+  margin-bottom: 0.25rem;
+}
+
+#tool-description {
+  color: #888;
+  margin-top: 0;
+}
+
+#tool-form label {
+  display: block;
+  margin-bottom: 0.9rem;
+  font-size: 0.9rem;
+}
+
+#tool-form input[type="text"],
+#tool-form input[type="number"],
+#tool-form select {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+}
+
+#tool-form input[type="checkbox"] {
+  margin-right: 0.4rem;
+}
+
+.field-hint {
+  display: block;
+  font-size: 0.75rem;
+  color: #888;
+  margin-top: 0.15rem;
+}
+
+#call-button {
+  padding: 0.5rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#call-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+#result-panel {
+  margin-top: 1.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+}
+
+#result-panel.success { border-color: var(--success); }
+#result-panel.error { border-color: var(--danger); }
+
+#result-output {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.82rem;
+  max-height: 50vh;
+  overflow-y: auto;
+}
