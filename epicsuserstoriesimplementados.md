@@ -170,12 +170,51 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 17 — Vehicles (Getrak Web, Release 3, novo 16/08/2026) (US-070 a US-075; US-076 fora desta rodada)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_web_vehicles` | US-070 | `GET /v1.0/vehicles` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_by_equipment` | US-071 | `GET /v1.0/vehicles/equipments/{serial_number}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_equipment_history` | US-072 | `GET /v1.0/vehicles/{id}/equipments-history` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_by_plate` | US-073 | `GET /v1.0/vehicles/lookup/{plate}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_status` | US-074 | `GET /v1.0/localization/vehicles-status/{vehicle_id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `search_vehicles_status` | US-075 | `GET /v1.0/localization/vehicles-status` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+
+**Status:** ✅ 6 de 7 tools implementadas e testadas (mocks/contrato + validação real), 43 testes automatizados novos (287 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**US-076 (`get_isoline_shape`, `GET /v1.0/localization/isoline`) — deliberadamente FORA desta rodada.** A própria spec da User Story condiciona a implementação a uma confirmação de caso de uso real por Diego (Product Owner) — "Baixa prioridade — caso de uso ainda não identificado" — que não foi obtida durante esta implementação. Seguindo a instrução explícita da tarefa ("só implemente se... confirmar que não há decisão de Produto pendente"), a tool **não foi codificada**. Nenhum código, teste ou registro de catálogo para `get_isoline_shape` existe neste PR. Confirmado por teste real via `tools/list` que ela não aparece entre as 38 tools descobertas.
+
+**Domínio no catálogo MCP:** novo domínio `web_vehicles` — deliberadamente distinto de `vehicles` (Epic 2, `VehiclesIntegracao`/`oauth2ClientCredentials`), mesma convenção do `web_users` (Epic 16) vs. `accounts` (Epic 9).
+
+**Validado contra produção real em 17/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16. Todos os 6 endpoints chamados diretamente antes de codificar.
+
+**Achados reais documentados (não decididos silenciosamente):**
+1. **`GET /v1.0/vehicles` e `GET /v1.0/localization/vehicles-status` reproduzem o mesmo bug de paginação `perPage`/`per_page`** do Epic 10/16 — confirmado empiricamente antes de codificar (25 itens com `perPage`, contagem exata pedida com `per_page`). Implementado corretamente desde o início nas duas tools.
+2. **`GET /v1.0/vehicles/{id}/equipments-history` retorna `{data, total, pages}` — sem a chave `page`**, diferente do envelope padrão `{data, page, pages, total}` do resto do projeto. Inofensivo para o código (o `page` usado na resposta normalizada vem do input, não da resposta), mas divergência real registrada. Esse mesmo endpoint documenta o filtro de busca como `filter[search][inc]` (singular "filter", não "filters" como na maioria dos outros) — implementado fielmente ao nome documentado; o teste real feito não conseguiu discriminar se isso faz diferença de fato (dataset de teste tinha um único serial no histórico do veículo usado).
+3. **`GET /v1.0/localization/vehicles-status` usa `order[gps_time]`/`order[server_time]` com enum `asc`/`desc` MINÚSCULO** — diferente da convenção `ASC`/`DESC` maiúscula usada em quase todo o resto do projeto (incluindo `search_web_vehicles`, no mesmo Epic). Implementado respeitando o valor real documentado, não a convenção do restante do projeto.
+4. **`GET /v1.0/vehicles/lookup/{plate}` (US-073) — achado crítico, não é uma consulta ao cadastro da central.** Ver seção dedicada abaixo.
+
+**ACHADO CRÍTICO — `get_vehicle_by_plate` (US-073) não filtra por central:** confirmado empiricamente que este endpoint funciona como uma consulta de placa genérica (estilo FIPE/DETRAN), não como "esta placa pertence a um veículo rastreado nesta central":
+- Uma placa completamente inventada (`ZZZ0000`, sem nenhuma correspondência em nenhum cadastro Getrak) retornou HTTP 200 com um registro completo e plausível (Ford Ka, chassi, preço FIPE) — não HTTP 404.
+- Uma placa real da frota desta central (`FMB-6843`, com marca/VIN propositalmente inválidos no cadastro Getrak visto em `search_web_vehicles`) retornou, neste endpoint, marca/modelo/chassi **completamente diferentes e plausíveis** (Volkswagen SpaceFox, chassi de fábrica real) — os dados não vêm do cadastro desta central.
+- `central_id` aparece igual em ambos os casos (o do usuário autenticado) — não é um filtro real, parece só ser carimbado no retorno.
+- HTTP 400 só ocorre para formato de placa claramente inválido (`"Invalid plate format. Expected format: ABC1234 or ABC1D23"`); nenhuma placa sintaticamente válida testada (real ou inventada) produziu 404.
+- **A AC da spec ("placa sem veículo correspondente → VEHICLE_NOT_FOUND") não corresponde ao comportamento real observado.** Implementado fielmente ao endpoint real (sem inventar uma checagem adicional de pertencimento à central que a API não faz). **Sinalizado para decisão de Produto/Engenharia** — pode exigir reescopar ou renomear esta tool, ou tratá-la como uma capacidade de enriquecimento de dados nacional em vez de consulta de frota.
+
+**Sobreposição de dados investigada conforme instruído:**
+- **US-070 (`search_web_vehicles`) vs. US-008 (`search_vehicles`, Epic 2):** sobreposição conceitual real — ambas são consultas de CADASTRO de veículo (nenhuma inclui localização em tempo real). Não foi possível comparar o shape ponto a ponto (Epic 2 usa `oauth2ClientCredentials`, sem credencial disponível neste ambiente, mesma limitação já registrada para todo o Epic 2/4/9). **Não consolidado nem descartado** — decisão de Produto/Engenharia.
+- **US-074 (`get_vehicle_status`) vs. US-013 (`get_vehicle_current_location`, Epic 3):** sobreposição real de CAMPOS confirmada — `get_vehicle_status` retorna `latitude`/`longitude`/`speed`/`ignition`/`entrys`/`gps_time` (mesmos conceitos documentados para US-013: "latitude, longitude, velocidade, status de ignição/entradas, data/hora do último pacote"), além de dados que US-013 não tem (odômetro/horímetro, tensão de bateria, status de bloqueio, GPS fix/satélites, snapshot de cadastro). Não foi possível comparar o valor exato no mesmo veículo (US-013 usa credencial técnica antiga, indisponível neste ambiente) — a sobreposição identificada é de campos/conceito. **Não consolidado nem descartado** — decisão de Produto/Engenharia. `search_vehicles_status` (US-075) é "mesma família de dados" (spec) que `get_vehicle_status` — mesma sobreposição se aplica.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
 - US-032 (Epic 9) — bloqueada por GAP-018 (ver acima).
 - US-038 (Epic 10) — bloqueada por GAP-019 (ver acima).
+- US-076 (Epic 17) — bloqueada por falta de confirmação de caso de uso por Diego (Product Owner), conforme a própria spec exige.
 - Epic 11 (US-043) — bloqueado por aprovação de Produto/Segurança.
 - Epic 12 — nenhuma User Story gerada.
 

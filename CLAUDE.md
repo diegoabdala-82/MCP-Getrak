@@ -8,7 +8,7 @@ As specs individuais (uma por User Story) definem endpoint, contrato de entrada/
 1. Instrução explícita mais recente do usuário na sessão
 2. PRD - Getrak Core MCP (**v1.5**, Aprovado — pendente reconfirmação formal de Diego sobre TD-05, ver Seção 6)
 3. Technical Brief - Getrak Core MCP (TECHNICALLY READY — WITH ENGINEERING DISCOVERY; TD-01 a TD-05 aprovados)
-4. Specs individuais por User Story (pasta `Claude Code / Specs` no Notion — 51 documentos: US-001 a US-048 e US-067 a US-069 (Epic 16), exceto lacunas registradas na Seção 9)
+4. Specs individuais por User Story (pasta `Claude Code / Specs` no Notion — 58 documentos: US-001 a US-048, US-067 a US-069 (Epic 16) e US-070 a US-076 (Epic 17), exceto lacunas registradas na Seção 9)
 5. `epicsuserstoriesimplementados.md` — registro do que **já foi codificado e testado**; usar para não reimplementar, não para redefinir contrato (contrato vem da spec)
 
 Não invente endpoints, schemas, regras de negócio ou capacidades que não estejam em uma dessas fontes. Se algo não estiver definido, pare e sinalize — não assuma.
@@ -26,8 +26,9 @@ Não invente endpoints, schemas, regras de negócio ou capacidades que não este
 - **Epic 9 — Clientes, Subclientes, Perfis e Centrais (US-030, US-031, US-033, US-034): 4 tools, `oauth2ClientCredentials`/`Integracao` — ainda não testadas contra produção** (mesma limitação de credencial do Epic 2/4). US-032 (usuários) **não** foi implementada — segue bloqueada por GAP-018. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo decisões de nomenclatura e divergências encontradas.
 - **Epic 10 — Domínios internos Getrak Web (US-035, US-036, US-037, US-039, US-040, US-041, US-042): 7 tools, `oauth2Password`/`GetrakWeb` via token delegado (US-046/047/048) — as 7 testadas contra produção real em 16/08/2026**, com credencial de usuário real de teste (central de demonstração). Quatro discrepâncias reais encontradas e corrigidas nessa validação (ver Seção 7). US-038 (fornecedores) **não** foi implementada — segue bloqueada por GAP-019. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo a decisão sobre acesso por papel (US-040/US-042).
 - **Epic 16 — Users, Getrak Web (Release 3, novo 16/08/2026) (US-067, US-068, US-069): 3 tools, `oauth2Password`/`GetrakWeb` via o mesmo token delegado (US-046/047/048), nenhuma infraestrutura de autenticação nova — as 3 testadas contra produção real em 17/08/2026**, mesma central de demonstração. Investigado explicitamente, via `get_current_user`, se a resposta de `GET /oauth/usuario` resolveria o gap de papel do usuário aberto no Epic 10 (US-040/US-042): a resposta real contém campos não documentados (`tipo`, `perfil`) que são candidatos fortes, mas nenhuma fonte confirma o mapeamento inteiro→papel — **o gap permanece aberto**, sem mapeamento inventado. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo (divergências de shape em `GET /v1.0/users/{id}`, mesmo bug de paginação `perPage`/`per_page` do Epic 10 confirmado e já corrigido desde o início, decisão de minimização do campo `uid`).
+- **Epic 17 — Vehicles, Getrak Web (Release 3, novo 16/08/2026) (US-070 a US-075): 6 tools, `oauth2Password`/`GetrakWeb` via o mesmo token delegado — as 6 testadas contra produção real em 17/08/2026**, mesma central de demonstração. **US-076 (`get_isoline_shape`) deliberadamente fora desta rodada** — a própria spec condiciona a implementação a confirmação de caso de uso por Diego, não obtida. **Achado crítico em `get_vehicle_by_plate` (US-073):** o endpoint real não filtra por central — retorna dados de uma consulta de placa genérica (estilo FIPE/DETRAN) para qualquer placa sintaticamente válida, mesmo sem nenhum veículo correspondente cadastrado na Getrak; a AC da spec ("placa sem correspondência → VEHICLE_NOT_FOUND") não reflete o comportamento observado. **Sobreposição de dados confirmada** entre `get_vehicle_status`/`search_vehicles_status` (US-074/075) e `get_vehicle_current_location` (US-013/Epic 3) — mesmos campos de localização/ignição; e sobreposição conceitual (não confirmada campo a campo, sem credencial disponível) entre `search_web_vehicles` (US-070) e `search_vehicles` (US-008/Epic 2). Nenhuma tool consolidada ou descartada — decisão de Produto/Engenharia. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo.
 
-Total: 32 tools MCP registradas, 244 testes automatizados.
+Total: 38 tools MCP registradas, 287 testes automatizados.
 
 **Ainda não implementado:**
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
@@ -35,6 +36,7 @@ Total: 32 tools MCP registradas, 244 testes automatizados.
 - **Epic 11 (US-043)** — consulta de documentos de pagamento/KYC. **Bloqueado**: requer aprovação explícita de Produto e revisão de Segurança antes de qualquer código, mesmo sendo leitura.
 - US-032 (dentro do Epic 9) — **bloqueada individualmente** por GAP-018 (ver Seção 9).
 - US-038 (dentro do Epic 10) — **bloqueada individualmente** por GAP-019, path não confirmado (ver Seção 9).
+- US-076 (dentro do Epic 17) — **bloqueada individualmente**: caso de uso não confirmado por Diego (Product Owner), condição exigida pela própria spec.
 
 ---
 
