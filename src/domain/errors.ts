@@ -21,6 +21,8 @@ export const ErrorCodes = {
   UPSTREAM_UNAVAILABLE: "UPSTREAM_UNAVAILABLE",
   UPSTREAM_ERROR: "UPSTREAM_ERROR",
   INTERNAL_ERROR: "INTERNAL_ERROR",
+  /** US-046: credencial delegada do usuário ausente, inválida ou expirada na API Core. */
+  USER_CREDENTIAL_INVALID: "USER_CREDENTIAL_INVALID",
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes] | (string & {});

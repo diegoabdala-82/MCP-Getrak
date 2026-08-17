@@ -1,0 +1,41 @@
+import { ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { describe, expect, it } from "vitest";
+import { AuditLogger, InMemoryAuditSink } from "../../../src/foundation/audit/audit-logger.js";
+import {
+  CentralAuthorizationGuard,
+  StaticCentralAuthorizationProvider,
+} from "../../../src/foundation/authorization/central-authorization.js";
+import { AllowAllToolPermissionChecker, ToolCatalog } from "../../../src/foundation/catalog/tool-catalog.js";
+import { StaticConsumerIdentityResolver } from "../../../src/foundation/identity/consumer-context.js";
+import { ToolRuntime } from "../../../src/foundation/tool-runtime.js";
+import { registerAccountTools } from "../../../src/domain/accounts/index.js";
+import { createGetrakMcpServer } from "../../../src/server.js";
+import { createFakeApiCoreClient } from "./test-helpers.js";
+
+describe("Epic 9 — registro das 4 tools de accounts no servidor MCP", () => {
+  it("expõe as 4 tools na descoberta nativa (US-032 não registrada — GAP-018)", async () => {
+    const auditLogger = new AuditLogger(new InMemoryAuditSink());
+    const centralGuard = new CentralAuthorizationGuard(new StaticCentralAuthorizationProvider({}));
+    const { server, registerDomainTool } = createGetrakMcpServer({
+      environment: "homologation",
+      catalog: new ToolCatalog(),
+      permissionChecker: new AllowAllToolPermissionChecker(),
+      identityResolver: new StaticConsumerIdentityResolver({ consumer_id: "claude-code" }),
+      toolRuntime: new ToolRuntime(centralGuard, auditLogger),
+      auditLogger,
+    });
+
+    registerAccountTools(registerDomainTool, { apiCoreClient: createFakeApiCoreClient([]).client });
+
+    const listToolsHandler = (
+      server as unknown as {
+        _requestHandlers: Map<string, (req: unknown) => Promise<{ tools: { name: string }[] }>>;
+      }
+    )._requestHandlers.get(ListToolsRequestSchema.shape.method.value);
+
+    const result = await listToolsHandler?.({ method: "tools/list" });
+    const names = result?.tools.map((t) => t.name).sort();
+
+    expect(names).toEqual(["get_centrals", "get_user_profiles", "search_clients", "search_subclients"]);
+  });
+});

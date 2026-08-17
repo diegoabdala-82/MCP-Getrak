@@ -13,9 +13,16 @@ import type { Environment } from "../config/environment.js";
 import type { ErrorEnvelope } from "../domain/errors.js";
 import { toMcpToolError } from "../domain/errors.js";
 import type { AuditLogger, AuditRisk } from "./audit/audit-logger.js";
+import { assertNoForbiddenAuthParams } from "./auth/auth-profile-registry.js";
+import type { AuthScheme } from "./auth/types.js";
 import type { CentralAuthorizationGuard } from "./authorization/central-authorization.js";
 import { buildErrorEnvelope, buildSuccessEnvelope, type SuccessEnvelope } from "./envelope/response-envelope.js";
 import type { ConsumerContext } from "./identity/consumer-context.js";
+
+/** CLAUDE.md Seção 8: distingue o esquema de autenticação usado na chamada auditada. */
+function toAuditAuthScheme(authScheme: AuthScheme): "delegated_user" | "technical_client" {
+  return authScheme === "oauth2Password" ? "delegated_user" : "technical_client";
+}
 
 export interface ToolHandlerContext {
   requestId: string;
@@ -32,6 +39,14 @@ export interface ToolHandlerResult<TData> {
   warnings?: string[];
   partial?: boolean;
   affectedEntities?: string[];
+  /**
+   * US-047/US-008 (auditoria, CLAUDE.md Seção 8): esquema de autenticação
+   * usado nesta chamada, para distinguir `delegated_user` de
+   * `technical_client` no registro de auditoria. Opcional para não exigir
+   * alteração retroativa de tools já implementadas antes de US-046/047/048
+   * — tools novas que usam o fluxo delegado (Epic 10) devem preenchê-lo.
+   */
+  authScheme?: AuthScheme;
 }
 
 export interface ToolDefinition<TInput, TData> {
@@ -67,6 +82,7 @@ export class ToolRuntime {
     let central: string | null = null;
 
     try {
+      assertNoForbiddenAuthParams(rawInput);
       const parsedInput = definition.inputSchema.parse(rawInput);
 
       if (definition.requiresCentral) {
@@ -108,6 +124,7 @@ export class ToolRuntime {
         result: "success",
         duration_ms: this.clock() - startedAt,
         affected_entities: result.affectedEntities,
+        auth_scheme: result.authScheme ? toAuditAuthScheme(result.authScheme) : undefined,
         timestamp: new Date(startedAt).toISOString(),
       });
 

@@ -66,6 +66,15 @@ export interface ApiCoreGetParams {
   timeoutMs?: number;
   /** Código de erro específico do domínio a usar em caso de 404 (ex.: VEHICLE_NOT_FOUND). */
   notFoundCode?: string;
+  /**
+   * US-046/047/048: quando fornecido, usado no lugar de
+   * `AuthManager.getAccessToken` para obter o token — resolução de token
+   * DELEGADO (por usuário), em vez de credencial técnica por ambiente.
+   * `authScheme` deve continuar sendo `oauth2Password` nesse caso. Erros já
+   * vêm normalizados por quem fornece o provider (`DelegatedTokenManager`);
+   * `toMcpToolError` (via `normalizeAuthError`) os repassa inalterados.
+   */
+  delegatedTokenProvider?: () => Promise<string>;
 }
 
 export class ApiCoreClient {
@@ -83,11 +92,13 @@ export class ApiCoreClient {
       async () => {
         let token: string;
         try {
-          token = await this.authManager.getAccessToken({
-            environment: params.environment,
-            central: params.central,
-            authScheme: params.authScheme,
-          });
+          token = params.delegatedTokenProvider
+            ? await params.delegatedTokenProvider()
+            : await this.authManager.getAccessToken({
+                environment: params.environment,
+                central: params.central,
+                authScheme: params.authScheme,
+              });
         } catch (err) {
           throw normalizeAuthError(err);
         }

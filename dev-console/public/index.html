@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>Getrak Core MCP — Console de Teste</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header>
+    <h1>Getrak Core MCP — Console de Teste</h1>
+    <span id="env-badge" class="env-badge">carregando ambiente…</span>
+  </header>
+
+  <main>
+    <section id="tool-list-panel">
+      <input id="tool-filter" type="text" placeholder="Filtrar tools…" autocomplete="off" />
+      <ul id="tool-list"></ul>
+    </section>
+
+    <section id="tool-detail-panel">
+      <p id="empty-state">Selecione uma tool na lista à esquerda.</p>
+      <div id="tool-detail" hidden>
+        <h2 id="tool-name"></h2>
+        <p id="tool-description"></p>
+        <form id="tool-form"></form>
+        <button id="call-button" type="submit" form="tool-form">Executar</button>
+        <div id="result-panel" hidden>
+          <h3>Resultado</h3>
+          <pre id="result-output"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

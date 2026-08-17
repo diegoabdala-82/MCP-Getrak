@@ -43,6 +43,30 @@ export function buildTokenNamespace(params: BuildTokenNamespaceParams): string {
 /** Margem de segurança subtraída do TTL do token, conforme TD-04. */
 export const TOKEN_EXPIRY_SAFETY_MARGIN_SECONDS = 60;
 
+export interface BuildDelegatedTokenNamespaceParams {
+  environment: Environment;
+  central: string;
+  userId: string;
+  /**
+   * US-048: `session_id` (ou, futuramente, `delegated_session_id` quando a
+   * API Core disponibilizar esse identificador — ED-ID-02). Nenhuma
+   * estrutura real de sessão por conexão está definida ainda (GAP, ver
+   * `foundation/identity/consumer-context.ts`); usar
+   * `DEFAULT_DELEGATED_SESSION_ID` (delegated-token-manager.ts) até então.
+   */
+  sessionId: string;
+}
+
+/**
+ * Constrói o namespace de cache do token DELEGADO (US-048) — distinto do
+ * namespace de credencial técnica (`buildTokenNamespace` acima, usado pelas
+ * tools já existentes de Epic 3/5, não migradas nesta tarefa):
+ * `mcp:{environment}:{central}:oauth2Password:{user_id}:{session_id}`.
+ */
+export function buildDelegatedTokenNamespace(params: BuildDelegatedTokenNamespaceParams): string {
+  return `mcp:${params.environment}:${params.central}:oauth2Password:${params.userId}:${params.sessionId}`;
+}
+
 /**
  * Implementação em memória — usada em testes e como fallback local de
  * desenvolvimento. A implementação de produção (Redis/ElastiCache, TD-04)

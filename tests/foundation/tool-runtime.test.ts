@@ -123,4 +123,68 @@ describe("ToolRuntime — pipeline reutilizável (US-001/002/003/005/006)", () =
       expect(Object.prototype.hasOwnProperty.call(shape, forbidden)).toBe(false);
     }
   });
+
+  it.each(["scope", "auth_profile", "credential_id"])(
+    "rejeita '%s' como parâmetro de entrada mesmo que o schema da tool o aceitasse (US-047)",
+    async (forbiddenKey) => {
+      const { runtime, auditSink } = buildRuntime({ "consumer-a": ["central-1"] });
+      let handlerCalled = false;
+
+      const definition: ToolDefinition<SearchVehiclesInput, unknown> = {
+        name: "search_vehicles",
+        risk: "low",
+        requiresCentral: true,
+        inputSchema: searchVehiclesInputSchema,
+        getCentral: (input) => input.central,
+        handler: async () => {
+          handlerCalled = true;
+          return { data: {}, endpoints: [] };
+        },
+      };
+
+      const envelope = await runtime.execute(
+        definition,
+        { central: "central-1", [forbiddenKey]: "anything" },
+        baseExecEnv,
+      );
+
+      expect(handlerCalled).toBe(false);
+      expect(envelope).toMatchObject({ error: { code: ErrorCodes.VALIDATION_ERROR, retryable: false } });
+      expect(auditSink.records[0]).toMatchObject({ result: "error", error_code: ErrorCodes.VALIDATION_ERROR });
+    },
+  );
+
+  it("registra auth_scheme='delegated_user' na auditoria quando o handler declara oauth2Password (US-047/Seção 8)", async () => {
+    const { runtime, auditSink } = buildRuntime({ "consumer-a": ["central-1"] });
+
+    const definition: ToolDefinition<SearchVehiclesInput, unknown> = {
+      name: "search_accessories",
+      risk: "low",
+      requiresCentral: true,
+      inputSchema: searchVehiclesInputSchema,
+      getCentral: (input) => input.central,
+      handler: async () => ({ data: {}, endpoints: [], authScheme: "oauth2Password" }),
+    };
+
+    await runtime.execute(definition, { central: "central-1" }, baseExecEnv);
+
+    expect(auditSink.records[0]).toMatchObject({ auth_scheme: "delegated_user" });
+  });
+
+  it("registra auth_scheme='technical_client' na auditoria quando o handler declara oauth2ClientCredentials", async () => {
+    const { runtime, auditSink } = buildRuntime({ "consumer-a": ["central-1"] });
+
+    const definition: ToolDefinition<SearchVehiclesInput, unknown> = {
+      name: "search_vehicles",
+      risk: "low",
+      requiresCentral: true,
+      inputSchema: searchVehiclesInputSchema,
+      getCentral: (input) => input.central,
+      handler: async () => ({ data: {}, endpoints: [], authScheme: "oauth2ClientCredentials" }),
+    };
+
+    await runtime.execute(definition, { central: "central-1" }, baseExecEnv);
+
+    expect(auditSink.records[0]).toMatchObject({ auth_scheme: "technical_client" });
+  });
 });

@@ -17,20 +17,20 @@ Não invente endpoints, schemas, regras de negócio ou capacidades que não este
 
 ## 0. Estado atual da implementação (atualizado 15/08/2026)
 
-**Já implementado, testado e mergeado em `main` (PRs #1 e #2):**
-- Epic 1 — Fundação (US-001 a US-007): infraestrutura transversal completa.
+**Já implementado, testado e mergeado em `main` (PRs #1, #2 e #4):**
+- Epic 1 — Fundação (US-001 a US-007): infraestrutura transversal completa. **Estendida em 15/08/2026** com o fluxo de identidade delegada (US-046, US-047, US-048): `DelegatedTokenManager`, `UserCredentialsProvider` (Env/AWS Secrets Manager), Auth Profile Registry (rejeição transversal de `scope`/`auth_profile`/`credential_id`), namespace de cache delegado distinto do técnico. Não usada ainda por Epic 2-9 (não migradas); consumida pela primeira vez pelo Epic 10. **Corrigida em 16/08/2026** após teste real contra produção com credencial de usuário real (ver Seção 6.2 e Seção 7): formato do corpo da requisição de emissão de token, composição do `username`, e client_id/secret reais para o escopo `GetrakWeb`.
 - Epic 2 — Veículos (US-008 a US-012): 5 tools, `oauth2ClientCredentials`/`Integracao` — **ainda não testadas contra produção** (sem credencial desse tipo disponível até o momento).
 - Epic 3 — Localização (US-013 a US-019): 7 tools, `oauth2Password` — **todas testadas contra produção real**. Três bugs reais encontrados e corrigidos (ver Seção 7).
 - Epic 4 — Equipamentos (US-020, US-021): 2 tools, `oauth2ClientCredentials`/`Integracao` — não testadas contra produção.
 - Epic 5 — Ordens de Serviço (US-022 a US-025): 4 tools, implementadas com `oauth2ClientCredentials` mas **testadas via `oauth2Password`** — decisão de qual esquema usar em produção real segue em aberto (ver Seção 6.3).
+- **Epic 9 — Clientes, Subclientes, Perfis e Centrais (US-030, US-031, US-033, US-034): 4 tools, `oauth2ClientCredentials`/`Integracao` — ainda não testadas contra produção** (mesma limitação de credencial do Epic 2/4). US-032 (usuários) **não** foi implementada — segue bloqueada por GAP-018. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo decisões de nomenclatura e divergências encontradas.
+- **Epic 10 — Domínios internos Getrak Web (US-035, US-036, US-037, US-039, US-040, US-041, US-042): 7 tools, `oauth2Password`/`GetrakWeb` via token delegado (US-046/047/048) — as 7 testadas contra produção real em 16/08/2026**, com credencial de usuário real de teste (central de demonstração). Quatro discrepâncias reais encontradas e corrigidas nessa validação (ver Seção 7). US-038 (fornecedores) **não** foi implementada — segue bloqueada por GAP-019. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo a decisão sobre acesso por papel (US-040/US-042).
 
-Total: 23 tools MCP registradas, 131 testes automatizados.
+Total: 29 tools MCP registradas, 219 testes automatizados. (Contagem de tools corrigida em 16/08/2026 — erro aritmético no total anterior, 34, detectado ao validar a descoberta real via `tools/list` num smoke test manual por stdio; a contagem por Epic acima sempre esteve correta, só a soma agregada estava errada.)
 
 **Ainda não implementado:**
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo desta fase.
-- **Epic 9 (US-030 a US-034)** — Clientes, Subclientes, Usuários e Perfis. **Novo em 15/08/2026.** Endpoints todos `oauth2ClientCredentials`/`Integracao`, mesmo padrão de auth já implementado em Epic 2/4 — não depende do modelo híbrido de identidade (Seção 6) para ser codificado.
-- **Epic 10 (US-035 a US-042)** — domínios internos Getrak Web (acessórios, integrações, perímetros). **Novo em 15/08/2026.** Todos `oauth2Password`/`GetrakWeb` — **bloqueado** até o fluxo de token delegado (US-046 a US-048) estar implementado e validado, o que por sua vez depende de ED-ID-01 (ver Seção 6.2).
 - **Epic 11 (US-043)** — consulta de documentos de pagamento/KYC. **Bloqueado**: requer aprovação explícita de Produto e revisão de Segurança antes de qualquer código, mesmo sendo leitura.
 - US-032 (dentro do Epic 9) — **bloqueada individualmente** por GAP-018 (ver Seção 9).
 - US-038 (dentro do Epic 10) — **bloqueada individualmente** por GAP-019, path não confirmado (ver Seção 9).
@@ -167,11 +167,19 @@ A seleção de qual esquema/escopo (`auth_profile`) uma tool usa é **determiní
 O MCP nunca usa token delegado em endpoint que exige `oauth2ClientCredentials`, nem o inverso.
 
 ### 6.2 Status de implementação
-O fluxo de token delegado (US-046, US-047, US-048) **ainda não foi implementado**. O fluxo exato de emissão do token delegado pela API Core (endpoint, parâmetros, lifetime, refresh, revogação) é **ED-ID-01 — bloqueante para qualquer tool que dependa de `oauth2Password` como token delegado real**, incluindo todo o Epic 10.
+O fluxo de token delegado (US-046, US-047, US-048) **foi implementado em 15/08/2026** (mesma rodada do Epic 10, que o consome):
 
-As tools já implementadas com `oauth2Password` (Epic 3 — Localização; parte do Epic 5 — Ordens de Serviço) foram codificadas **antes** desta decisão de arquitetura, usando o modelo anterior (credencial técnica resolvida por ambiente). Isso é uma dívida técnica registrada, não um erro a corrigir às pressas: essas tools continuam funcionais e testadas contra produção real. A migração dessas tools para o modelo de token delegado deve ser tratada como item de trabalho técnico explícito, não feita silenciosamente dentro de outra tarefa.
+- **Endpoint de emissão:** `POST /newkoauth/oauth/token` (OAuth2 Password Grant padrão, já documentado no `openapi.json` como `oauth2Password.flows.password.tokenUrl`). Não é um mecanismo novo a descobrir — é o Password Grant OAuth2 convencional.
+- **Origem da credencial do usuário (decisão de Engenharia, Opção A):** o usuário Getrak informa login/senha diretamente ao MCP, uma vez, na configuração da conexão MCP (não a cada chamada, não visível ao agente de IA). O MCP armazena essa credencial de forma segura (`UserCredentialsProvider`: AWS Secrets Manager em produção, variável de ambiente por usuário em desenvolvimento local — mesmo padrão já usado para credenciais técnicas) e a usa para obter e renovar o token delegado em nome do usuário (`DelegatedTokenManager`).
+- **Itens ainda abertos, não bloqueantes para o que já está implementado:** ED-ID-05 (mecanismo exato de coleta/armazenamento da credencial de usuário na configuração da conexão MCP — implementado com o mínimo necessário para homologação, não uma decisão fechada de produto/UI) e ED-ID-06 (comportamento quando a senha do usuário expira/muda — implementado como erro `USER_CREDENTIAL_INVALID` não retryable). Refinar antes de expor a usuários reais em produção.
+- **Corrigido em 16/08/2026, após teste real contra produção com uma credencial de usuário real de teste (central de demonstração) — três achados que a documentação/exemplos anteriores não previam (ver Seção 7):**
+  1. O corpo da requisição a `POST /newkoauth/oauth/token` para o escopo `GetrakWeb` deve ser `multipart/form-data`, não `application/x-www-form-urlencoded` (`MultipartFormOAuth2Client`, distinto do `HttpOAuth2Client` usado pelo modelo técnico de Epic 3/5 — não alterado, para não arriscar regredir um fluxo já validado).
+  2. O `username` enviado é o composto `{username}@{central}`, não o login isolado — a central faz parte da identidade OAuth, não é só um parâmetro de contexto do MCP. Corrigido em `DelegatedTokenManager.getAccessToken`.
+  3. `client_id`/`client_secret` para o escopo `GetrakWeb` são credenciais reais da aplicação (obtidas com o time, não documentadas no `openapi.json`), não o exemplo `dev`/`dev` do bloco `servers` do `openapi.json` (esse exemplo foi testado e rejeitado com 401 antes da credencial real ser fornecida). Credenciais reais nunca são commitadas no repositório — resolvidas apenas via `UserCredentialsProvider` em runtime (Seção 6.2 acima).
 
-**Regra prática para código novo:** nenhuma tool nova que dependa de `oauth2Password` como identidade delegada real (Epic 10 em diante) deve ser implementada antes de US-046/US-047/US-048 estarem prontos e validados. Tools novas que usam exclusivamente `oauth2ClientCredentials` (ex.: Epic 9, exceto US-032) não têm essa dependência e podem ser implementadas normalmente, seguindo o mesmo padrão já usado em Epic 2/4.
+As tools já implementadas com `oauth2Password` (Epic 3 — Localização; parte do Epic 5 — Ordens de Serviço) foram codificadas **antes** desta decisão de arquitetura, usando o modelo anterior (credencial técnica resolvida por ambiente, não token delegado por usuário). Isso é uma dívida técnica registrada, não um erro a corrigir às pressas: essas tools continuam funcionais e testadas contra produção real. A migração dessas tools para o modelo de token delegado deve ser tratada como item de trabalho técnico explícito, não feita silenciosamente dentro de outra tarefa — **não migradas nesta rodada**, conforme instruído.
+
+**Regra prática para código novo:** tools que usam `oauth2Password`/`GetrakWeb` (Epic 10) devem consumir `DelegatedTokenManager` (via `ApiCoreClient.get({ delegatedTokenProvider })`), nunca chamar a API Core diretamente. Tools que usam exclusivamente `oauth2ClientCredentials` (ex.: Epic 9, exceto US-032) não têm essa dependência.
 
 ### 6.3 Decisão em aberto herdada do Epic 5
 As tools de Ordens de Serviço (US-022 a US-025) aceitam ambos os esquemas na API Core, foram implementadas com `oauth2ClientCredentials` mas testadas via `oauth2Password`. Qual esquema usar definitivamente em produção **ainda não foi decidido** — isso é anterior e independente do modelo híbrido (TD-05), mas deve ser resolvido usando os mesmos princípios: se a tool precisa de identidade/permissão de um usuário específico, usa token delegado; se é uma operação técnica de integração, usa credencial técnica. Não decidir isso por conta própria ao tocar nesse código — sinalizar e aguardar decisão.
@@ -186,6 +194,7 @@ As tools de Ordens de Serviço (US-022 a US-025) aceitam ambos os esquemas na AP
   - Se uma spec individual referencia um endpoint, ele já foi verificado *contra a documentação* — mas isso não substitui a verificação empírica contra o comportamento real em homologação/produção ao implementar.
   - Quando o comportamento real divergir da documentação, **implementar conforme o comportamento real observado, documentando a divergência no PR** (não decidir isso silenciosamente nem reabrir a spec sozinho) — sinalizar a discrepância para que Contexto/PRD/Technical Brief sejam atualizados posteriormente.
   - Essa regra vale com força redobrada para os domínios novos (Epic 9/10), que ainda não têm nenhuma validação empírica — apenas mapeamento contra o `openapi.json`.
+- **Epic 10 — validado contra produção real em 16/08/2026, quatro discrepâncias reais encontradas e corrigidas:** três no fluxo de emissão do token delegado (formato `multipart/form-data`, composição `{username}@{central}`, client_id/secret reais do escopo `GetrakWeb` — ver Seção 6.2) e uma no nome do parâmetro de paginação: o `openapi.json` usa `perPage` como identificador do `$ref` em `components/parameters`, mas o parâmetro de query real (campo `name` dentro do próprio parâmetro) é `per_page` — as 6 tools paginadas do Epic 10 enviavam `perPage` (o identificador do `$ref`, não o nome real do parâmetro), que a API real simplesmente ignorava, sempre aplicando seu próprio tamanho de página padrão independente do que o consumidor pedisse. Corrigido em todos os 6 arquivos; confirmado empiricamente que `page_size` agora é respeitado.
 
 ---
 
@@ -219,10 +228,12 @@ Dados considerados sensíveis neste projeto: localização, placa, chassi, CPF, 
 
 - **ED-01** — Paginação real por endpoint ainda não mapeada exaustivamente; ao implementar cada adapter, documentar o comportamento real encontrado (ver Seção 7).
 - **ED-02** — Autenticação combinada em `get_vehicle_operational_context` (US-029) ainda não validada em homologação. Implementar de forma defensiva.
-- **ED-ID-01** (bloqueante para Epic 10 e para migrar Epic 3/5 ao modelo delegado) — fluxo exato de emissão do token delegado ainda não definido.
-- **ED-ID-02, ED-ID-03, ED-ID-04** — estrutura de identidade de sessão, múltiplos escopos por sessão, suporte a refresh token — todos abertos, não bloqueantes para o que já está implementado.
+- **ED-ID-01 — Closed (15/08/2026).** Fluxo de emissão do token delegado: OAuth2 Password Grant padrão via `POST /newkoauth/oauth/token`, com credencial de usuário (login/senha) coletada na configuração da conexão MCP e armazenada com segurança pelo MCP (ver Seção 6.2).
+- **ED-ID-02** — estrutura de identidade de sessão por conexão MCP ainda não definida pelo transporte; `DelegatedTokenManager` usa `DEFAULT_DELEGATED_SESSION_ID` fixo como placeholder (não distingue múltiplas sessões simultâneas do mesmo usuário). Não bloqueante — namespace de cache continua isolado por environment+central+user_id.
+- **ED-ID-03, ED-ID-04** — múltiplos escopos por sessão, suporte a refresh token — abertos, não bloqueantes para o que já está implementado.
+- **ED-ID-05, ED-ID-06 — implementados com o mínimo necessário para homologação, não fechados como decisão de produto.** ED-ID-05 (armazenamento da credencial de usuário): `UserCredentialsProvider` (Env local / AWS Secrets Manager por usuário), sem UI de login. ED-ID-06 (senha expirada/alterada): erro `USER_CREDENTIAL_INVALID`, não retryable, sinalizando a necessidade de atualizar a credencial. Revisitar antes de expor a usuários reais em produção.
 
-Esses itens não impedem a implementação do que já está desbloqueado (ex.: Epic 9 exceto US-032), mas o código para as áreas afetadas deve ser escrito para acomodar ajuste posterior — não travar em suposições como se fossem definitivas.
+Esses itens não impedem a implementação do que já está desbloqueado, mas o código para as áreas afetadas deve ser escrito para acomodar ajuste posterior — não travar em suposições como se fossem definitivas.
 
 ---
 

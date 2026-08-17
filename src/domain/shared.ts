@@ -83,5 +83,34 @@ export function buildPagePerPagePagination(
   };
 }
 
+/**
+ * Epic 10 (Getrak Web, `page`/`per_page`): ao contrário de Epic 2-9, estes
+ * endpoints confirmadamente devolvem um envelope real de paginação —
+ * `{ data: [...], page, pages, total }` (confirmado individualmente contra
+ * reference/openapi.json para US-035/036/039/040/041/042) — permitindo
+ * `total_items`/`has_more` exatos em vez da estimativa usada em
+ * `buildPaginationMeta`.
+ */
+export function extractPagePerPageEnvelope(
+  raw: unknown,
+  page: number,
+  page_size: number,
+): { items: Record<string, unknown>[]; meta: PaginationMeta } {
+  const obj = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const items = Array.isArray(obj.data) ? (obj.data as Record<string, unknown>[]) : [];
+  const pages = typeof obj.pages === "number" ? obj.pages : null;
+  const total = typeof obj.total === "number" ? obj.total : null;
+
+  return {
+    items,
+    meta: {
+      page,
+      page_size,
+      total_items: total,
+      has_more: pages !== null ? page < pages : items.length >= page_size,
+    },
+  };
+}
+
 export { normalizePagination };
 export type { PaginationMeta };

@@ -12,12 +12,16 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { resolveEnvironment, type Environment } from "./config/environment.js";
 import { AuditLogger, StdoutAuditSink } from "./foundation/audit/audit-logger.js";
 import { AwsSecretsManagerProvider } from "./foundation/auth/aws-secrets-provider.js";
+import { AwsUserCredentialsProvider } from "./foundation/auth/aws-user-credentials-provider.js";
 import { AuthManager } from "./foundation/auth/auth-manager.js";
+import { DelegatedTokenManager } from "./foundation/auth/delegated-token-manager.js";
+import { MultipartFormOAuth2Client } from "./foundation/auth/multipart-oauth2-client.js";
 import { HttpOAuth2Client } from "./foundation/auth/oauth2-client.js";
 import { createRedisClient } from "./foundation/auth/redis-client-factory.js";
 import { RedisTokenCache } from "./foundation/auth/redis-token-cache.js";
 import { EnvSecretsProvider, type SecretsProvider } from "./foundation/auth/secrets-provider.js";
 import { InMemoryTokenCache, type TokenCache } from "./foundation/auth/token-cache.js";
+import { EnvUserCredentialsProvider, type UserCredentialsProvider } from "./foundation/auth/user-credentials-provider.js";
 import {
   CentralAuthorizationGuard,
   StaticCentralAuthorizationProvider,
@@ -26,8 +30,12 @@ import { AllowAllToolPermissionChecker, ToolCatalog } from "./foundation/catalog
 import { ApiCoreClient } from "./foundation/http/api-core-client.js";
 import { StaticConsumerIdentityResolver } from "./foundation/identity/consumer-context.js";
 import { ToolRuntime } from "./foundation/tool-runtime.js";
+import { registerAccessoryTools } from "./domain/accessories/index.js";
+import { registerAccountTools } from "./domain/accounts/index.js";
 import { registerEquipmentTools } from "./domain/equipments/index.js";
+import { registerIntegrationTools } from "./domain/integrations/index.js";
 import { registerLocationTools } from "./domain/locations/index.js";
+import { registerPerimeterTools } from "./domain/perimeters/index.js";
 import { registerVehicleTools } from "./domain/vehicles/index.js";
 import { registerWorkOrderTools } from "./domain/work-orders/index.js";
 import { createGetrakMcpServer } from "./server.js";
@@ -44,8 +52,23 @@ async function main() {
     new StaticCentralAuthorizationProvider(authorizedCentralsByConsumer),
   );
 
-  const authManager = new AuthManager(buildSecretsProvider(), buildTokenCache(), new HttpOAuth2Client());
+  const tokenCache = buildTokenCache();
+  const authManager = new AuthManager(buildSecretsProvider(), tokenCache, new HttpOAuth2Client());
   const apiCoreClient = new ApiCoreClient(resolveApiCoreBaseUrl(environment), authManager);
+
+  // US-046/047/048: token delegado do usuário — infraestrutura separada da
+  // credencial técnica acima (AuthManager), reutiliza o mesmo TokenCache
+  // (namespaces distintos, ver buildDelegatedTokenNamespace). Usa
+  // `MultipartFormOAuth2Client`, não `HttpOAuth2Client` — confirmado contra
+  // chamada real que o endpoint de emissão exige multipart/form-data para
+  // o escopo GetrakWeb (ver multipart-oauth2-client.ts); o modelo técnico
+  // (Epic 3/5, não tocado) continua em x-www-form-urlencoded via
+  // HttpOAuth2Client, já validado contra produção real nesse formato.
+  const delegatedTokenManager = new DelegatedTokenManager(
+    buildUserCredentialsProvider(),
+    tokenCache,
+    new MultipartFormOAuth2Client(),
+  );
 
   const toolRuntime = new ToolRuntime(centralGuard, auditLogger);
   const catalog = new ToolCatalog();
@@ -68,6 +91,10 @@ async function main() {
   registerLocationTools(registerDomainTool, { apiCoreClient });
   registerEquipmentTools(registerDomainTool, { apiCoreClient });
   registerWorkOrderTools(registerDomainTool, { apiCoreClient });
+  registerAccountTools(registerDomainTool, { apiCoreClient });
+  registerAccessoryTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerIntegrationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerPerimeterTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
@@ -96,6 +123,19 @@ function buildTokenCache(): TokenCache {
     return new RedisTokenCache(createRedisClient({ url: redisUrl }));
   }
   return new InMemoryTokenCache();
+}
+
+/**
+ * US-046/ED-ID-05: usa AWS Secrets Manager (um segredo por usuário) quando
+ * `GETRAK_MCP_USE_AWS_SECRETS=true` (mesma flag da credencial técnica);
+ * senão, variáveis de ambiente locais por usuário — mecanismo mínimo,
+ * não uma decisão fechada de produto (ver user-credentials-provider.ts).
+ */
+function buildUserCredentialsProvider(): UserCredentialsProvider {
+  if (process.env.GETRAK_MCP_USE_AWS_SECRETS === "true") {
+    return new AwsUserCredentialsProvider();
+  }
+  return new EnvUserCredentialsProvider();
 }
 
 /**
