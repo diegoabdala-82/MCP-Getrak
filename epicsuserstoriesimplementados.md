@@ -138,6 +138,38 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 16 — Users (Getrak Web, Release 3, novo 16/08/2026) (US-067, US-068, US-069)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `get_user_details` | US-067 | `GET /v1.0/users/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `search_web_users` | US-068 | `GET /v1.1/users` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_current_user` | US-069 | `GET /oauth/usuario` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+
+**Status:** ✅ 3 tools implementadas e testadas (mocks/contrato + validação real), 25 testes automatizados novos (244 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação foi criada.
+
+**Domínio no catálogo MCP:** novo domínio `web_users` — deliberadamente distinto de `accounts` (Epic 9, `UsersIntegracao`/`oauth2ClientCredentials`) para não confundir com US-032 (usuários via Integracao, bloqueada por GAP-018) nem com `get_user_profiles` (perfis, não usuários).
+
+**Validado contra produção real em 17/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para validar o Epic 10. Chamadas diretas confirmaram os 3 endpoints (`GET /oauth/usuario`, `GET /v1.1/users`, `GET /v1.0/users/{id}`) antes da implementação (para evitar propagar suposições do `openapi.json` já sabidamente pouco confiável — CLAUDE.md Seção 7).
+
+**Divergências reais encontradas e corrigidas/documentadas (não decididas silenciosamente):**
+1. **`GET /v1.0/users/{id}` — shape de resposta totalmente diferente do documentado.** O `openapi.json` documenta `{client: {...}, client_id, fullName, id, site}`; a resposta real é `{id, full_name, client, subclient, central}` (chave `full_name`, não `fullName`; inclui `subclient`). O parâmetro `fields[]` usa os identificadores camelCase documentados (`fullName`, `site`, `clientId`) como seletor, mas as chaves de saída correspondentes vêm em snake_case (`site`, `client_id`); enviar o próprio nome de saída (`full_name`) no `fields[]` derruba o endpoint com HTTP 500. Por isso `fields[]` não é exposto como parâmetro da tool — ela sempre envia o seletor fixo `id,fullName,site,clientId`, confirmado seguro.
+2. **`GET /v1.1/users` — mesmo bug de paginação do Epic 10 (`perPage` vs. `per_page`).** Confirmado empiricamente ANTES de escrever o código (não repetido por engano): `perPage` é silenciosamente ignorado (a API aplica seu próprio padrão de 25 itens); `per_page` é o nome real. Implementado corretamente desde o início.
+3. **`GET /v1.1/users` — paginação real confirmada** como o mesmo envelope `{data, page, pages, total}` do Epic 10; filtro sem correspondência retorna lista vazia normalizada (`{data: [], total: 0, pages: 0, page: 1}`), nunca erro.
+4. **`GET /oauth/usuario` — resposta real tem mais campos que o documentado.** Documentado: `{id, login, nome, sistema, timezone, permissao, email}`. Real: acrescenta `centralId`, `perfil` (inteiro), `ativo` (Y/N), `senhatemp` (Y/N), `tipo` (inteiro), `uid` (string hexadecimal longa) e `acessoWs` (Y/N).
+
+**Achado central da US-069 — gap de papel do usuário (Epic 10, US-040/US-042):** investigado explicitamente, conforme instruído.
+- `permissao` (documentado) é um array de flags de permissão granulares por funcionalidade (`#/components/schemas/permission` — ex.: `6`=Fence, `2`=Reference point, `28`=Administrative panel), **não** uma classificação de papel do usuário — não resolve o gap.
+- `tipo` (inteiro) e `perfil` (inteiro) são campos reais, não documentados no `openapi.json`, e são candidatos fortes: `GET /v1.1/users` (US-068) documenta um filtro `type` com exatamente a taxonomia do gap (`admin|operator|client|subclient|atende`), o que sugere que `tipo` seja essa mesma classificação em forma numérica; `perfil` pode corresponder a `profile_id` (mesmo endpoint, ou ao domínio `get_user_profiles` do Epic 9).
+- **Nenhuma fonte disponível (openapi.json, PRD, Technical Brief, nenhuma spec) confirma o mapeamento inteiro→papel.** Por instrução explícita da tarefa, esse mapeamento **não foi inventado**.
+- **Conclusão: o gap do Epic 10 permanece aberto** — mas com uma pista concreta e nova (campos exatos + endpoint) que não existia antes desta rodada. `tipo`/`perfil` são expostos como estão em `get_current_user`, sem uso em nenhuma lógica de filtragem do MCP. Recomenda-se à Engenharia confirmar o mapeamento de `tipo` antes de qualquer tentativa futura de fechar o gap com base nele. **Nenhuma mudança foi feita em `search_geofences`/`search_reference_points`.**
+
+**Minimização em `get_current_user`:** o campo `uid` (identificador longo, formato de token/sessão) é omitido da resposta normalizada — divergente do precedente geral de "repassar como recebido" (cnpj/email no Epic 9, `credentials.token` no Epic 10), decisão pontual por não ter valor de negócio conhecido e ter formato de credencial opaca (CLAUDE.md Seção 8 lista tokens/identificadores como sensíveis). Demais campos sensíveis (email, telefone, documento em `client`) seguem o mesmo tratamento já estabelecido: mascarados apenas na auditoria, nunca na resposta ao consumidor já autorizado.
+
+**`central` como parâmetro de `get_current_user`:** a spec descreve a tool como "sem parâmetros de entrada", mas isso se refere a parâmetros de negócio (nenhum id, nenhum filtro) — `central` continua exigido como gate de autorização e chave de resolução do token delegado (CLAUDE.md Seção 3/US-048), mesmo padrão já usado em `get_accessories_summary`/`get_centrals`. Reconciliação sinalizada no código-fonte, não uma suposição silenciosa.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

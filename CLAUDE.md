@@ -8,14 +8,14 @@ As specs individuais (uma por User Story) definem endpoint, contrato de entrada/
 1. Instrução explícita mais recente do usuário na sessão
 2. PRD - Getrak Core MCP (**v1.5**, Aprovado — pendente reconfirmação formal de Diego sobre TD-05, ver Seção 6)
 3. Technical Brief - Getrak Core MCP (TECHNICALLY READY — WITH ENGINEERING DISCOVERY; TD-01 a TD-05 aprovados)
-4. Specs individuais por User Story (pasta `Claude Code / Specs` no Notion — 48 documentos: US-001 a US-048, exceto lacunas registradas na Seção 9)
+4. Specs individuais por User Story (pasta `Claude Code / Specs` no Notion — 51 documentos: US-001 a US-048 e US-067 a US-069 (Epic 16), exceto lacunas registradas na Seção 9)
 5. `epicsuserstoriesimplementados.md` — registro do que **já foi codificado e testado**; usar para não reimplementar, não para redefinir contrato (contrato vem da spec)
 
 Não invente endpoints, schemas, regras de negócio ou capacidades que não estejam em uma dessas fontes. Se algo não estiver definido, pare e sinalize — não assuma.
 
 ---
 
-## 0. Estado atual da implementação (atualizado 15/08/2026)
+## 0. Estado atual da implementação (atualizado 17/08/2026)
 
 **Já implementado, testado e mergeado em `main` (PRs #1, #2 e #4):**
 - Epic 1 — Fundação (US-001 a US-007): infraestrutura transversal completa. **Estendida em 15/08/2026** com o fluxo de identidade delegada (US-046, US-047, US-048): `DelegatedTokenManager`, `UserCredentialsProvider` (Env/AWS Secrets Manager), Auth Profile Registry (rejeição transversal de `scope`/`auth_profile`/`credential_id`), namespace de cache delegado distinto do técnico. Não usada ainda por Epic 2-9 (não migradas); consumida pela primeira vez pelo Epic 10. **Corrigida em 16/08/2026** após teste real contra produção com credencial de usuário real (ver Seção 6.2 e Seção 7): formato do corpo da requisição de emissão de token, composição do `username`, e client_id/secret reais para o escopo `GetrakWeb`.
@@ -25,8 +25,9 @@ Não invente endpoints, schemas, regras de negócio ou capacidades que não este
 - Epic 5 — Ordens de Serviço (US-022 a US-025): 4 tools, implementadas com `oauth2ClientCredentials` mas **testadas via `oauth2Password`** — decisão de qual esquema usar em produção real segue em aberto (ver Seção 6.3).
 - **Epic 9 — Clientes, Subclientes, Perfis e Centrais (US-030, US-031, US-033, US-034): 4 tools, `oauth2ClientCredentials`/`Integracao` — ainda não testadas contra produção** (mesma limitação de credencial do Epic 2/4). US-032 (usuários) **não** foi implementada — segue bloqueada por GAP-018. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo decisões de nomenclatura e divergências encontradas.
 - **Epic 10 — Domínios internos Getrak Web (US-035, US-036, US-037, US-039, US-040, US-041, US-042): 7 tools, `oauth2Password`/`GetrakWeb` via token delegado (US-046/047/048) — as 7 testadas contra produção real em 16/08/2026**, com credencial de usuário real de teste (central de demonstração). Quatro discrepâncias reais encontradas e corrigidas nessa validação (ver Seção 7). US-038 (fornecedores) **não** foi implementada — segue bloqueada por GAP-019. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo, incluindo a decisão sobre acesso por papel (US-040/US-042).
+- **Epic 16 — Users, Getrak Web (Release 3, novo 16/08/2026) (US-067, US-068, US-069): 3 tools, `oauth2Password`/`GetrakWeb` via o mesmo token delegado (US-046/047/048), nenhuma infraestrutura de autenticação nova — as 3 testadas contra produção real em 17/08/2026**, mesma central de demonstração. Investigado explicitamente, via `get_current_user`, se a resposta de `GET /oauth/usuario` resolveria o gap de papel do usuário aberto no Epic 10 (US-040/US-042): a resposta real contém campos não documentados (`tipo`, `perfil`) que são candidatos fortes, mas nenhuma fonte confirma o mapeamento inteiro→papel — **o gap permanece aberto**, sem mapeamento inventado. Ver `epicsuserstoriesimplementados.md` para o detalhamento completo (divergências de shape em `GET /v1.0/users/{id}`, mesmo bug de paginação `perPage`/`per_page` do Epic 10 confirmado e já corrigido desde o início, decisão de minimização do campo `uid`).
 
-Total: 29 tools MCP registradas, 219 testes automatizados. (Contagem de tools corrigida em 16/08/2026 — erro aritmético no total anterior, 34, detectado ao validar a descoberta real via `tools/list` num smoke test manual por stdio; a contagem por Epic acima sempre esteve correta, só a soma agregada estava errada.)
+Total: 32 tools MCP registradas, 244 testes automatizados.
 
 **Ainda não implementado:**
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.

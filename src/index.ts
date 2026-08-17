@@ -37,6 +37,7 @@ import { registerIntegrationTools } from "./domain/integrations/index.js";
 import { registerLocationTools } from "./domain/locations/index.js";
 import { registerPerimeterTools } from "./domain/perimeters/index.js";
 import { registerVehicleTools } from "./domain/vehicles/index.js";
+import { registerWebUserTools } from "./domain/web-users/index.js";
 import { registerWorkOrderTools } from "./domain/work-orders/index.js";
 import { createGetrakMcpServer } from "./server.js";
 
@@ -95,6 +96,7 @@ async function main() {
   registerAccessoryTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerIntegrationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerPerimeterTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerWebUserTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
