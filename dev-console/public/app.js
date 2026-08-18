@@ -1,8 +1,101 @@
+/**
+ * Mapeamento estático nome-da-tool -> domínio do catálogo interno do MCP.
+ *
+ * O protocolo MCP padrão (`tools/list`) só expõe `name`/`description`/
+ * `inputSchema` — não expõe o domínio/catálogo interno (`foundation/catalog/
+ * tool-catalog.ts`), que é uma organização do lado do servidor, não do
+ * protocolo. Por isso este console (ferramenta de desenvolvimento local, não
+ * parte do produto) mantém esta tabela separadamente, espelhando o campo
+ * `domain` de cada `catalogEntry` no código-fonte real de cada tool
+ * (`src/domain/<domínio>/<tool>.ts`).
+ *
+ * MANUTENÇÃO: ao adicionar uma nova tool ao servidor, adicione a entrada
+ * correspondente aqui também — não há verificação automática de
+ * sincronismo. Uma tool ausente deste mapa ainda aparece no console (grupo
+ * "Outras / não mapeadas"), nunca é ocultada silenciosamente.
+ */
+const TOOL_DOMAIN = {
+  // Epic 2 — Veículos (oauth2ClientCredentials/Integracao)
+  search_vehicles: "vehicles",
+  get_vehicle_category: "vehicles",
+  get_vehicle_client_link: "vehicles",
+  get_vehicle_subclient_link: "vehicles",
+  get_suspended_vehicles: "vehicles",
+  // Epic 3 — Localização (oauth2Password/PublicoCliente)
+  get_vehicle_current_location: "locations",
+  get_vehicle_location_history: "locations",
+  get_vehicle_paths: "locations",
+  get_vehicle_movements_and_stops: "locations",
+  get_vehicle_inputs_report: "locations",
+  get_offline_treatments: "locations",
+  get_offline_treatment_history: "locations",
+  // Epic 4 — Equipamentos (oauth2ClientCredentials/Integracao)
+  search_equipments: "equipments",
+  get_equipment_bench_position: "equipments",
+  // Epic 5 — Ordens de Serviço (oauth2ClientCredentials/Integracao)
+  get_work_order_details: "work_orders",
+  get_work_order_tests: "work_orders",
+  get_work_order_tests_definition: "work_orders",
+  get_work_order_report: "work_orders",
+  // Epic 9 — Accounts (oauth2ClientCredentials/Integracao)
+  search_clients: "accounts",
+  search_subclients: "accounts",
+  get_user_profiles: "accounts",
+  get_centrals: "accounts",
+  // Epic 10 — Accessories/Integrations/Perimeters (oauth2Password/GetrakWeb)
+  search_accessories: "accessories",
+  search_accessory_categories: "accessories",
+  get_accessories_summary: "accessories",
+  search_central_integrations: "integrations",
+  search_geofences: "perimeters",
+  search_perimeter_categories: "perimeters",
+  search_reference_points: "perimeters",
+  // Epic 16 — Web Users (oauth2Password/GetrakWeb)
+  get_user_details: "web_users",
+  search_web_users: "web_users",
+  get_current_user: "web_users",
+  // Epic 17 — Web Vehicles (oauth2Password/GetrakWeb)
+  search_web_vehicles: "web_vehicles",
+  get_vehicle_by_equipment: "web_vehicles",
+  get_vehicle_equipment_history: "web_vehicles",
+  get_vehicle_by_plate: "web_vehicles",
+  get_vehicle_status: "web_vehicles",
+  search_vehicles_status: "web_vehicles",
+};
+
+/**
+ * Metadados de exibição por domínio: rótulo amigável e o escopo/esquema de
+ * autenticação real (CLAUDE.md Seção 6 / `x-tagGroups` do openapi.json:
+ * Public, Integration, Getrak Web) usado pelas tools daquele domínio.
+ * Fonte: comentário de cabeçalho de cada `domain/<domínio>/shared.ts`.
+ */
+const CATEGORY_META = {
+  vehicles: { label: "Vehicles", scope: "Integration", scopeClass: "integration" },
+  locations: { label: "Locations", scope: "Public", scopeClass: "public" },
+  equipments: { label: "Equipments", scope: "Integration", scopeClass: "integration" },
+  work_orders: { label: "Work Orders", scope: "Integration", scopeClass: "integration" },
+  accounts: { label: "Accounts", scope: "Integration", scopeClass: "integration" },
+  accessories: { label: "Accessories", scope: "Getrak Web", scopeClass: "getrakweb" },
+  integrations: { label: "Central Integrations", scope: "Getrak Web", scopeClass: "getrakweb" },
+  perimeters: { label: "Perimeters", scope: "Getrak Web", scopeClass: "getrakweb" },
+  web_users: { label: "Users", scope: "Getrak Web", scopeClass: "getrakweb" },
+  web_vehicles: { label: "Vehicles", scope: "Getrak Web", scopeClass: "getrakweb" },
+  uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
+};
+
+function domainOf(toolName) {
+  return TOOL_DOMAIN[toolName] || "uncategorized";
+}
+
 let allTools = [];
 let selectedTool = null;
+let selectedCategory = null; // null = mostrando a lista de categorias
 
 const toolListEl = document.getElementById("tool-list");
 const toolFilterEl = document.getElementById("tool-filter");
+const breadcrumbEl = document.getElementById("breadcrumb");
+const breadcrumbScopeEl = document.getElementById("breadcrumb-scope");
+const backToCategoriesEl = document.getElementById("back-to-categories");
 const emptyStateEl = document.getElementById("empty-state");
 const toolDetailEl = document.getElementById("tool-detail");
 const toolNameEl = document.getElementById("tool-name");
@@ -35,30 +128,134 @@ async function loadTools() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     allTools = (data.tools || []).slice().sort((a, b) => a.name.localeCompare(b.name));
-    renderToolList(allTools);
+    render();
   } catch (err) {
     toolListEl.innerHTML = `<li>Erro ao carregar tools: ${escapeHtml(err.message)}. O servidor MCP ainda está subindo (spawn via tsx pode levar alguns segundos) — tente recarregar.</li>`;
   }
 }
 
-function renderToolList(tools) {
-  toolListEl.innerHTML = "";
+/** Agrupa `allTools` por domínio, retornando um Map<domain, tool[]> ordenado por rótulo de categoria. */
+function groupByCategory(tools) {
+  const groups = new Map();
   for (const tool of tools) {
+    const domain = domainOf(tool.name);
+    if (!groups.has(domain)) groups.set(domain, []);
+    groups.get(domain).push(tool);
+  }
+  return new Map(
+    [...groups.entries()].sort((a, b) => {
+      const labelA = (CATEGORY_META[a[0]] || CATEGORY_META.uncategorized).label;
+      const labelB = (CATEGORY_META[b[0]] || CATEGORY_META.uncategorized).label;
+      return labelA.localeCompare(labelB);
+    }),
+  );
+}
+
+function scopeBadgeHtml(scopeClass, scope) {
+  return `<span class="scope-badge scope-${scopeClass}">${escapeHtml(scope)}</span>`;
+}
+
+/** Decide o que renderizar na lista à esquerda: categorias, tools de uma categoria, ou resultado de busca global. */
+function render() {
+  const query = toolFilterEl.value.trim().toLowerCase();
+
+  if (query) {
+    renderSearchResults(query);
+    return;
+  }
+
+  if (selectedCategory) {
+    renderCategoryTools(selectedCategory);
+    return;
+  }
+
+  renderCategoryList();
+}
+
+function renderCategoryList() {
+  breadcrumbEl.hidden = true;
+  const groups = groupByCategory(allTools);
+  toolListEl.innerHTML = "";
+  toolListEl.classList.add("category-view");
+
+  for (const [domain, tools] of groups) {
+    const meta = CATEGORY_META[domain] || CATEGORY_META.uncategorized;
     const li = document.createElement("li");
-    li.textContent = tool.name;
-    li.dataset.name = tool.name;
-    if (selectedTool && selectedTool.name === tool.name) li.classList.add("selected");
-    li.addEventListener("click", () => selectTool(tool));
+    li.className = "category-row";
+    li.innerHTML = `
+      <div class="category-row-main">
+        <span class="category-label">${escapeHtml(meta.label)}</span>
+        <span class="category-count">${tools.length} tool${tools.length === 1 ? "" : "s"}</span>
+      </div>
+      ${scopeBadgeHtml(meta.scopeClass, meta.scope)}
+    `;
+    li.addEventListener("click", () => {
+      selectedCategory = domain;
+      render();
+    });
     toolListEl.appendChild(li);
   }
+
+  if (groups.size === 0) {
+    toolListEl.innerHTML = "<li>Nenhuma tool carregada.</li>";
+  }
+}
+
+function renderCategoryTools(domain) {
+  const meta = CATEGORY_META[domain] || CATEGORY_META.uncategorized;
+  breadcrumbEl.hidden = false;
+  breadcrumbScopeEl.innerHTML = `<strong>${escapeHtml(meta.label)}</strong> ${scopeBadgeHtml(meta.scopeClass, meta.scope)}`;
+  toolListEl.classList.remove("category-view");
+
+  const tools = allTools.filter((t) => domainOf(t.name) === domain);
+  toolListEl.innerHTML = "";
+  for (const tool of tools) {
+    toolListEl.appendChild(buildToolListItem(tool));
+  }
   if (tools.length === 0) {
+    toolListEl.innerHTML = "<li>Nenhuma tool nesta categoria.</li>";
+  }
+}
+
+function renderSearchResults(query) {
+  breadcrumbEl.hidden = true;
+  toolListEl.classList.remove("category-view");
+
+  const matches = allTools.filter(
+    (t) => t.name.toLowerCase().includes(query) || (t.description || "").toLowerCase().includes(query),
+  );
+  toolListEl.innerHTML = "";
+  for (const tool of matches) {
+    const meta = CATEGORY_META[domainOf(tool.name)] || CATEGORY_META.uncategorized;
+    const li = buildToolListItem(tool);
+    const tag = document.createElement("span");
+    tag.className = "tool-category-tag";
+    tag.textContent = meta.label;
+    li.appendChild(tag);
+    toolListEl.appendChild(li);
+  }
+  if (matches.length === 0) {
     toolListEl.innerHTML = "<li>Nenhuma tool corresponde ao filtro.</li>";
   }
 }
 
+function buildToolListItem(tool) {
+  const li = document.createElement("li");
+  li.textContent = tool.name;
+  li.dataset.name = tool.name;
+  if (selectedTool && selectedTool.name === tool.name) li.classList.add("selected");
+  li.addEventListener("click", () => selectTool(tool));
+  return li;
+}
+
+backToCategoriesEl.addEventListener("click", () => {
+  selectedCategory = null;
+  render();
+});
+
 function selectTool(tool) {
   selectedTool = tool;
-  renderToolList(filterTools(toolFilterEl.value));
+  render();
 
   emptyStateEl.hidden = true;
   toolDetailEl.hidden = false;
@@ -161,13 +358,7 @@ function collectArguments() {
   return args;
 }
 
-function filterTools(query) {
-  const q = query.trim().toLowerCase();
-  if (!q) return allTools;
-  return allTools.filter((t) => t.name.toLowerCase().includes(q) || (t.description || "").toLowerCase().includes(q));
-}
-
-toolFilterEl.addEventListener("input", () => renderToolList(filterTools(toolFilterEl.value)));
+toolFilterEl.addEventListener("input", render);
 
 toolFormEl.addEventListener("submit", async (event) => {
   event.preventDefault();

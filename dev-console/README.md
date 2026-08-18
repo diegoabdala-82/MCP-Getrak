@@ -13,10 +13,16 @@ Ferramenta de **desenvolvimento local**, não faz parte do produto MCP: não é 
 
 ## O que a tela faz
 
-- Lista todas as tools descobertas via `tools/list` real (o mesmo catálogo que qualquer cliente MCP veria).
+- Lista todas as tools descobertas via `tools/list` real (o mesmo catálogo que qualquer cliente MCP veria), **agrupadas por categoria** (domínio do catálogo interno — Vehicles, Locations, Accounts, Users, etc.). Cada categoria mostra o número de tools e um selo do **escopo/esquema de autenticação** real que suas tools usam (`Getrak Web`, `Integration` ou `Public`, conforme `CLAUDE.md` Seção 6 / `x-tagGroups` do openapi.json).
+- Clicar em uma categoria mostra as tools daquela categoria; um link "← Todas as categorias" volta à lista de categorias.
+- O campo de filtro busca por nome/descrição em **todas** as categorias de uma vez (não só na categoria atual), mostrando a categoria de cada resultado.
 - Ao selecionar uma tool, monta um formulário a partir do JSON Schema real dela (campos obrigatórios marcados com `*`, enums viram `<select>`, arrays viram campo de texto separado por vírgulas).
 - "Executar" chama a tool via `tools/call` real e mostra o envelope de resposta (sucesso ou erro) formatado.
 - Mostra um selo do ambiente ativo no topo — fica vermelho se `production`, para não confundir com homologação sem perceber.
+
+### Sobre o agrupamento por categoria/escopo
+
+O protocolo MCP padrão (`tools/list`) só expõe `name`/`description`/`inputSchema` — não expõe o domínio do catálogo interno do servidor (`foundation/catalog/tool-catalog.ts`) nem o escopo OAuth de cada tool. Por isso o agrupamento usa uma tabela estática em `public/app.js` (`TOOL_DOMAIN`/`CATEGORY_META`), mantida manualmente em espelho ao campo `domain` de cada `catalogEntry` no código-fonte real. **Ao adicionar uma tool nova ao servidor, adicione a entrada correspondente nessa tabela** — uma tool ausente do mapa não é ocultada, aparece no grupo "Outras / não mapeadas" (falha visível, não silenciosa).
 
 ## O que a tela **não** faz (por design)
 
