@@ -66,6 +66,9 @@ const TOOL_DOMAIN = {
   get_messages_analytics: "notifications",
   // Epic 19 — Operations (oauth2Password/GetrakWeb)
   search_operations: "operations",
+  // Epic 13 — Reports (oauth2Password/GetrakWeb)
+  search_reports: "reports",
+  get_reports_summary: "reports",
 };
 
 /**
@@ -87,6 +90,7 @@ const CATEGORY_META = {
   web_vehicles: { label: "Vehicles", scope: "Getrak Web", scopeClass: "getrakweb" },
   notifications: { label: "Notifications", scope: "Getrak Web", scopeClass: "getrakweb" },
   operations: { label: "Operations", scope: "Getrak Web", scopeClass: "getrakweb" },
+  reports: { label: "Reports", scope: "Getrak Web", scopeClass: "getrakweb" },
   uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
 };
 

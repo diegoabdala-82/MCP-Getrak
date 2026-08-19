@@ -275,6 +275,51 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 13 — Reports (Getrak Web, Release 3, novo 19/08/2026) (US-049, US-050)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_reports` | US-049 | `GET /v1.0/report/reports` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_reports_summary` | US-050 | `GET /v1.0/report/reports/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 2 tools implementadas e testadas (mocks/contrato + validação real), 14 testes automatizados novos (325 no total). Ambas reaproveitam o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação.
+
+**Domínio no catálogo MCP:** novo domínio `reports`.
+
+**Confirmado, por inspeção completa da tag `Reports` no `openapi.json` antes de codificar, que ela documenta 7 endpoints no total — só 2 de leitura, os 5 restantes são escrita:**
+- `GET /v1.0/report/reports` (US-049) e `GET /v1.0/report/reports/summary` (US-050) — os 2 implementados.
+- `POST /v1.0/report/reports` (criação), `POST /v1.0/report/reports/share` (compartilhamento), `PUT`/`DELETE /v1.0/report/reports/report-scheduling/{id}` (agendamento) e `DELETE /v1.0/report/reports/{reportId}` (exclusão) — todos de escrita, **nenhum implementado**, conforme instruído.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16/17/18/19. Os 2 endpoints chamados diretamente antes de codificar, confirmando não serem `deprecated`.
+
+**ACHADO CRÍTICO EM `search_reports` — paginação obrigatória, diferente de todo o resto do domínio Getrak Web:** `page` e `per_page` (nome real de wire, já indicado pelo próprio `x-codeSamples` do `openapi.json` — `?page=1&per_page=10` — e confirmado empiricamente) não são "opcionais com padrão no servidor" como em todos os outros endpoints paginados já implementados (Epic 10/16/17/18/19). Confirmado isolando cada caso:
+- Sem nenhum parâmetro de paginação → HTTP 500 `{"error":"Internal error"}`.
+- Só `page`, sem `per_page` → o mesmo HTTP 500.
+- Só `per_page`, sem `page` → o mesmo HTTP 500.
+- `page` + `per_page` juntos (mesmo com valores triviais, `page=1&per_page=2`) → HTTP 200 normal.
+
+**Isso não exigiu nenhuma validação adicional na tool:** o helper `buildPagePerPagePagination`/`normalizePagination`, já usado por todo o domínio Getrak Web, sempre preenche `page`/`page_size` com um valor concreto (padrão 1/50) mesmo quando o consumidor da tool não informa nenhum dos dois — ou seja, a tool sempre envia os dois parâmetros à API Core, nunca reproduzindo o cenário que causa o HTTP 500. Documentado porque é a primeira vez neste projeto que a ausência de paginação quebra a chamada em vez de aplicar um padrão do lado do servidor — relevante para qualquer adapter futuro que reutilize esses helpers.
+
+**ACHADO QUE INVERTE O PADRÃO DO EPIC 19 — formato de wire dos filtros de múltiplos valores:**
+- `filters[report_type][in]` e `filters[status]` aceitam múltiplos valores **repetindo a mesma chave de query, SEM sufixo `[]`** — confirmado com union real e matematicamente exato: `report_type=km_traveled` sozinho → `total=80`; `report_type=speed` sozinho → `total=254`; os dois juntos (chave repetida) → `total=334` (exatamente 80+254, sem sobreposição). O mesmo padrão foi confirmado para `filters[status]` (`status=1`→50, `status=3`→905, os dois juntos→955).
+- **Adicionar o sufixo `[]` (`filters[report_type][in][]=...`) FAZ O FILTRO SER SILENCIOSAMENTE IGNORADO** — retorna o total não filtrado (1203) em vez de aplicar o filtro ou dar erro.
+- Isso é o **OPOSTO EXATO** do achado do Epic 19 (`GET /v1.0/operations`), onde faltar o sufixo `[]` em `filters[operation_type][in]` quebrava a chamada com HTTP 500. **Confirma, de forma concreta e não hipotética, a disciplina do projeto de nunca assumir o formato de wire de um endpoint por analogia com outro já implementado** — cada um dos dois endpoints foi validado isoladamente contra produção real antes de codificar, e cada um exigiu o tratamento oposto.
+
+**Outros achados reais confirmados antes de codificar:**
+1. **`order[created_at]` (ordenação, `search_reports`) CONFIRMADO FUNCIONANDO CORRETAMENTE** nas duas direções (`ASC`/`DESC`, ordenação real observada nos timestamps retornados) — diferente do `order[date]` do Epic 19, que estava quebrado no backend. Exposto na tool como `sort_direction`.
+2. **`filters[created_at_start]`/`filters[created_at_end]` (intervalo de criação) confirmados funcionando** com valores ISO 8601 reais.
+3. **Filtro sem correspondência retorna lista vazia normalizada, nunca erro** — confirmado com um `user_id` inexistente e um `report_type` inventado, ambos HTTP 200 com `{data: [], total: 0}`.
+4. **`get_reports_summary` — `filters[report_type][notin]` confirmado com efeito real mensurável**: sem filtro, `{individual: 454, scheduled: 769}`; excluindo `km_traveled`, `{individual: 448, scheduled: 695}`; excluindo `speed`, `{individual: 355, scheduled: 607}` — reduções reais e distintas, confirmando que o filtro é aplicado de fato. O valor de exemplo do próprio `openapi.json` (`filters[report_type][notin]=individual`) não tem efeito nenhum quando testado — não é um bug do endpoint, é só um mau exemplo de documentação (`individual` é uma categoria do objeto de resposta `reports.individual`, não um `report_type` real); registrado para não ser confundido com um achado de comportamento quebrado. Mesmo padrão de wire do item anterior: `[]` no filtro `notin` também é silenciosamente ignorado.
+5. **`get_reports_summary` funciona sem nenhum parâmetro** — diferente de `search_reports`, não exige paginação (resposta é um único objeto agregado, sem lista).
+
+**Parâmetros documentados e NÃO expostos nesta rodada** (reduzindo a superfície de risco em vez de adivinhar contra produção, mesma disciplina de Epic 16/19): `filters[user_id]`, `filters[report_scheduling_id]` (+ `[is_null]`) e `include[]` em `search_reports`. Não testados nesta rodada — fora dos filtros citados como exemplo pela spec (tipo, período, status); item para validação futura, não uma limitação definitiva.
+
+**Nota sobre `"x-internal": true`:** assim como `GET /v1.0/operations` (Epic 19), os 2 endpoints de leitura desta tag também têm essa flag no `openapi.json`. Mesmo tratamento: não é critério de bloqueio (só `deprecated` é, CLAUDE.md Seção 7), apenas registrado por transparência.
+
+**Campo `link` na resposta de `search_reports`:** contém uma URL S3 pré-assinada (com assinatura/expiração) para baixar o relatório quando pronto. Repassado como veio, sem tratamento especial — mesmo padrão de "repassar como recebido" já usado para campos tipo-URL/credencial em outros domínios (ex.: `credentials.token` em `search_central_integrations`).
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

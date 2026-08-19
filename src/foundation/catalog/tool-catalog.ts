@@ -22,6 +22,7 @@ export const TOOL_DOMAINS = [
   "web_vehicles",
   "notifications",
   "operations",
+  "reports",
   "telemetry",
   "webhooks",
 ] as const;
