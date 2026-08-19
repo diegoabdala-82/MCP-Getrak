@@ -61,6 +61,9 @@ const TOOL_DOMAIN = {
   get_vehicle_by_plate: "web_vehicles",
   get_vehicle_status: "web_vehicles",
   search_vehicles_status: "web_vehicles",
+  // Epic 18 — Notifications (oauth2Password/GetrakWeb)
+  search_messages: "notifications",
+  get_messages_analytics: "notifications",
 };
 
 /**
@@ -80,6 +83,7 @@ const CATEGORY_META = {
   perimeters: { label: "Perimeters", scope: "Getrak Web", scopeClass: "getrakweb" },
   web_users: { label: "Users", scope: "Getrak Web", scopeClass: "getrakweb" },
   web_vehicles: { label: "Vehicles", scope: "Getrak Web", scopeClass: "getrakweb" },
+  notifications: { label: "Notifications", scope: "Getrak Web", scopeClass: "getrakweb" },
   uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
 };
 

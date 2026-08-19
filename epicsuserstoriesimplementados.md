@@ -208,6 +208,37 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 18 — Notifications (Getrak Web, Release 3, novo 19/08/2026) (US-077, US-078)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_messages` | US-077 | `GET /v1.0/notifications/messaging/messages` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_messages_analytics` | US-078 | `GET /v1.0/notifications/messaging/messages/analytics` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 2 tools implementadas e testadas (mocks/contrato + validação real), 14 testes automatizados novos (301 no total). Ambas reaproveitam o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação foi criada.
+
+**Domínio no catálogo MCP:** novo domínio `notifications`.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16/17. Os 2 endpoints chamados diretamente antes de codificar, confirmando não serem `deprecated` no `openapi.json`.
+
+**Achados reais documentados (não decididos silenciosamente):**
+1. **`GET /v1.0/notifications/messaging/messages` reproduz o mesmo bug de paginação `perPage`/`per_page`** já visto em Epic 10/16/17 — confirmado empiricamente antes de codificar (25 itens com `perPage`, contagem exata pedida com `per_page`, mesmo `total`). Implementado corretamente com `per_page` desde o início.
+2. **`is_automatic` vem como BOOLEANO real** (`true`/`false`) — o `openapi.json` documenta esse campo como inteiro `0`/`1`. Repassado como veio, não convertido para bater com o schema documentado (CLAUDE.md Seção 7: a resposta real é a fonte de verdade).
+3. **`reading_rate` (US-078) vem como NÚMERO DECIMAL real** (ex.: `21.9`) — o `openapi.json` documenta esse campo como inteiro. Repassado como veio, sem arredondar/truncar.
+4. **`GET /v1.0/notifications/messaging/messages/analytics` não exige nenhum parâmetro** — confirmado funcionando sem `start_at`/`end_at` (agregação sobre todo o histórico: `{total_sent: 2253, total_viewed: 494, reading_rate: 21.9}`) e com o par de datas (`{total_sent: 1023, total_viewed: 215, reading_rate: 21}`). Não há paginação neste endpoint — resposta é um único objeto agregado.
+5. **Artefato de documentação no `openapi.json`:** o bloco `responses.200` de `GET /v1.0/notifications/messaging/messages` está malformado — mistura um `$ref` para `#/components/responses/error-400` com um `content` de sucesso no mesmo bloco. Tratado como erro de documentação (ignorado); a resposta real de sucesso segue o envelope `{data, page, pages, total}` padrão do restante do projeto.
+
+**TENSÃO DE POLÍTICA SINALIZADA — mascaramento de conteúdo de mensagem (`body`/`title`), não resolvida silenciosamente em nenhuma direção:**
+- A tarefa desta rodada instruiu explicitamente: "aplique mascaramento na resposta normalizada e no log de auditoria, seguindo o mesmo padrão já usado em outras tools."
+- Essas duas metades da instrução se contradizem entre si: o padrão real já em uso em TODO o resto do projeto (Epic 9, Epic 10, Epic 16, Epic 17 — `search_clients`, `get_current_user`, etc.) é mascarar campos sensíveis **apenas no log de auditoria** (via `deepMask`, automático em `audit-logger.ts`), **nunca na resposta ao consumidor** já autorizado para a central — precisamente porque `result.data` nunca é incluído no registro de auditoria em nenhum domínio (ver `foundation/tool-runtime.ts`). Mascarar a resposta normalizada teria zero efeito sobre o log de auditoria (que já não contém `data`) e, ao mesmo tempo, seria a primeira exceção do projeto a mascarar a RESPOSTA entregue ao consumidor.
+- Confirmado empiricamente nesta rodada que `body`/`title` reais podem conter dado pessoal e financeiro concreto (nome de cliente, situação de cobrança — ex.: "Olá Bernardo, Não conseguimos identificar o pagamento da sua cobrança..."), mais sensível em espírito que os campos estruturados (cnpj/email/telefone) já tratados apenas por auditoria em outros domínios.
+- **Decisão tomada:** manter o padrão transversal existente (pass-through na resposta normalizada, mascarado só no log de auditoria — que, na prática, não mascara texto livre porque `deepMask` mascara por NOME de campo, não por padrão de conteúdo, e nenhum outro lugar do projeto tem mascaramento de texto livre). Não foi inventada uma exceção pontual de mascaramento de conteúdo só para este domínio, o que seria uma mudança de arquitetura de segurança não sinalizada em nenhuma fonte (CLAUDE.md, PRD, Technical Brief) além desta única tarefa.
+- **Sinalizado explicitamente para decisão de Produto/Segurança:** se a política real para conteúdo de mensagem precisar ser mais restritiva que para os demais domínios (ex.: mascarar nomes próprios/valores monetários dentro de `body` antes de retornar ao consumidor), isso exige (a) uma decisão de Produto sobre o que exatamente mascarar em texto livre, e (b) um mecanismo novo de mascaramento por CONTEÚDO (não por nome de campo) que hoje não existe em nenhum lugar do projeto — não algo a inventar dentro desta implementação.
+
+**Fora de escopo confirmado:** nenhuma tool de envio/agendamento/cancelamento de notificação foi criada — esses endpoints existem na mesma tag `Notifications` do `openapi.json`, mas são operações de escrita, fora da V1 read-only (CLAUDE.md Seção 9).
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.
@@ -217,5 +248,6 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 - US-076 (Epic 17) — bloqueada por falta de confirmação de caso de uso por Diego (Product Owner), conforme a própria spec exige.
 - Epic 11 (US-043) — bloqueado por aprovação de Produto/Segurança.
 - Epic 12 — nenhuma User Story gerada.
+- Operações de envio/agendamento/cancelamento de notificação (tag `Notifications`, fora do escopo do Epic 18) — write, fora da V1.
 
 Ver `CLAUDE.md` (Seções 0, 9 e 10) para o detalhamento completo de bloqueios e itens de Engineering Discovery em aberto.
