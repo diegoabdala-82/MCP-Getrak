@@ -239,6 +239,42 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 19 — Operations (Getrak Web, Release 3, novo 19/08/2026) (US-079)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_operations` | US-079 | `GET /v1.0/operations` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 1 tool implementada e testada (mocks/contrato + validação real), 10 testes automatizados novos (311 no total). Reaproveita o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação.
+
+**Domínio no catálogo MCP:** novo domínio `operations`.
+
+**Confirmado que a tag `Operations` do `openapi.json` documenta SÓ este endpoint** — nenhum outro path usa essa tag no `openapi.json` real deste projeto. A preocupação da tarefa (não replicar acidentalmente uma operação de escrita da mesma tag) não se aplica: não há nenhuma outra tool candidata a confundir.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16/17/18. Chamado diretamente antes de codificar, com dezenas de combinações de filtros, para responder exatamente à pergunta da tarefa: quais parâmetros são de fato obrigatórios.
+
+**FILTROS OBRIGATÓRIOS — confirmados por DUAS fontes independentes, conforme instruído:**
+1. **`openapi.json`:** `filters[operation_type][in]`, `filters[entity_id]` e `filters[date]` estão marcados `required: true` no bloco de parâmetros do endpoint (`page`, `perPage`, `fields[]` e `order[date]` são opcionais).
+2. **Empiricamente:** omitir qualquer um dos 3 filtros obrigatórios (isolado ou em combinação, incluindo nenhum filtro) NÃO produz um HTTP 400 limpo — produz **HTTP 500 genérico `{"error":"Internal error"}`**, sem indicar qual filtro faltou. Confirmado com múltiplas combinações (nenhum filtro; só `operation_type`; `operation_type`+`entity_id` sem `date`).
+
+**Consequência prática, exatamente o motivo da instrução da tarefa:** sem validação client-side, o consumidor receberia da API Core um `UPSTREAM_ERROR` genérico e sem contexto — em vez disso, os 3 filtros são campos **obrigatórios no schema Zod** (`operation_types: z.array(z.string()).min(1)`, `entity_id: z.string().min(1)`, `date` com regex `YYYY-MM-DD`). Como `ToolRuntime.execute()` já roda `inputSchema.parse()` antes de chamar `handler` (e portanto antes de qualquer chamada à API Core), a ausência de um filtro obrigatório vira `VALIDATION_ERROR` sem nenhum round-trip de rede — nenhuma lógica de validação extra foi necessária além de declarar os campos como obrigatórios no schema já existente do pipeline.
+
+**Achados reais adicionais, encontrados isolando cada fator antes de assumir o formato do `openapi.json` (não decididos silenciosamente):**
+1. **Formato real de wire do filtro de tipos exige o sufixo de array `[]`.** `filters[operation_type][in]=device` (sem `[]`) retorna o MESMO HTTP 500 genérico acima, mesmo com os 3 filtros logicamente presentes — só `filters[operation_type][in][]=device` (repetido por valor, para múltiplos tipos) funciona. Implementado com a chave de query `"filters[operation_type][in][]"` mapeada a um array — o serializador de query do `ApiCoreClient` já repete a chave por item de array, confirmado funcionando com múltiplos valores reais (`device` + `equipment_discarded` na mesma chamada).
+2. **`order[date]` (documentado, opcional) está QUEBRADO no backend — confirmado, não hipotético.** Todo valor testado produziu HTTP 500:
+   - `order[date]=ASC` e `order[date]=DESC` → `{"status":500,"error":"Unknown column 'distinctAlias.operation_data' in 'field list'"}` (erro de SQL vazando bruto).
+   - `order[date]=asc` (minúsculo) → `{"status":500,"error":"SelectQueryBuilder.addOrderBy \"order\" can accept only \"ASC\" and \"DESC\" values."}`.
+   - **Decisão:** `order[date]` não é exposto como parâmetro de entrada da tool — repassá-lo sempre quebraria a chamada, e CLAUDE.md Seção 3 proíbe repassar erro bruto da API Core; a única forma de cumprir isso aqui é não oferecer o parâmetro. Sinalizado para Engenharia/Produto: se ordenação for necessária no futuro, precisa de correção no backend antes de ser exposta pelo MCP.
+3. **Envelope de sucesso confirmado como o padrão `{data, page, pages, total}`** do resto do domínio Getrak Web — `extractPagePerPageEnvelope` aplicado sem alteração. Filtro sem correspondência retorna lista vazia normalizada (`{data: [], total: 0, pages: 0, page: 1}`), nunca erro — confirmado com dezenas de combinações reais de tipo/entidade/data na central de demonstração (nenhuma produziu resultado não vazio nesta rodada).
+4. **Paginação (`perPage`/`per_page`) NÃO pôde ser reconfirmada com resultado não vazio nesta rodada** — diferente de Epic 10/16/17/18, onde a distinção foi observada com dados reais. Nenhuma combinação de tipo/entidade/data tentada retornou nenhum registro nesta central de demonstração; `per_page`/`page` foram aceitos sem erro (HTTP 200, envelope vazio), mas não foi possível observar truncamento de página real. Implementado com `per_page` por forte precedente já confirmado repetidamente em todo o resto do domínio Getrak Web — sinalizado aqui como aplicação preventiva por precedente, não como confirmação nova e independente.
+5. **`fields[]` (documentado, opcional) não é exposto como parâmetro da tool** — não testado nesta rodada (fora do escopo obrigatório da tarefa); mais de um endpoint Getrak Web já mostrou HTTP 500 para seletores de campo mal formados (Epic 9/`search_accessories`, Epic 16/`get_user_details`). Reduzida a superfície de risco em vez de adivinhar contra produção.
+
+**Nomenclatura:** o filtro de entrada documentado é `operation_type` (singular, com modificador `[in]` para múltiplos valores); exposto na tool como `operation_types` (plural) para refletir que ela sempre aceita uma lista. O campo de saída correspondente no item de resposta é `type`, não `operation_type(s)` — repassado como veio, sem renomear a resposta upstream.
+
+**Nota sobre `"x-internal": true`:** o `openapi.json` marca este endpoint com essa flag (não vista em nenhum outro endpoint já consumido pelo projeto até agora). Sinalizado por transparência — nenhuma fonte de verdade (CLAUDE.md, PRD, Technical Brief, spec da US-079) trata essa flag como bloqueio de implementação; o único critério de vigência é `deprecated` (CLAUDE.md Seção 7), que este endpoint não tem. Não interpretado como impedimento, apenas registrado.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.
@@ -249,5 +285,6 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 - Epic 11 (US-043) — bloqueado por aprovação de Produto/Segurança.
 - Epic 12 — nenhuma User Story gerada.
 - Operações de envio/agendamento/cancelamento de notificação (tag `Notifications`, fora do escopo do Epic 18) — write, fora da V1.
+- Ordenação em `search_operations` (`order[date]`, Epic 19) — parâmetro documentado, mas confirmado quebrado no backend para todo valor testado; não exposto pela tool até correção no backend.
 
 Ver `CLAUDE.md` (Seções 0, 9 e 10) para o detalhamento completo de bloqueios e itens de Engineering Discovery em aberto.
