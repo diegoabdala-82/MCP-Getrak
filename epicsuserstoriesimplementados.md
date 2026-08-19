@@ -320,6 +320,66 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 21 — Equipments (Getrak Web, Release 3, novo 19/08/2026) (US-090 a US-102)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_web_equipments` | US-090 | `GET /v1.0/equipments` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_web_equipment_details` | US-091 | `GET /v1.0/equipments/{serial_number}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_devices` | US-092 | `GET /v1.0/equipments/devices` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipments_summary` | US-093 | `GET /v1.0/equipments/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_carriers` | US-094 | `GET /v1.0/equipments/carriers` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_inventory_summary` | US-095 | `GET /v1.0/equipments/inventory-summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_inventory` | US-096 | `GET /v1.0/equipments/inventory` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_tags` | US-097 | `GET /v1.0/equipments/tags` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipment_tag_details` | US-098 | `GET /v1.0/equipments/tags/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_device_models` | US-099 | `GET /v1.0/equipments/device-models` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_import_requests` | US-100 | `GET /v1.0/equipments/files` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipment_import_items` | US-101 | `GET /v1.0/equipments/files/{id}/items` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipment_import_summary` | US-102 | `GET /v1.0/equipments/files/{id}/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 13 tools implementadas e testadas (mocks/contrato + validação real), 54 testes automatizados novos (379 no total) — o maior Epic da Release 3 até agora. Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `web_equipments` — deliberadamente distinto de `equipments` (Epic 4, `EquipmentsIntegracao`/`oauth2ClientCredentials`), mesma convenção de `web_users` vs. `accounts` e `web_vehicles` vs. `vehicles`.
+
+**Confirmado que a tag `Equipments` do `openapi.json` também documenta operações de escrita** — `DELETE /v1.0/equipments/{serial_number}`, `POST`/`PUT /v1.0/equipments/devices`, `POST`/`PUT`/`DELETE /v1.0/equipments/tags` (+ `/{id}`) e `POST /v1.0/equipments/files` (upload de arquivo de importação). Nenhuma delas implementada — só os 13 endpoints de leitura listados acima.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics anteriores. Os 13 endpoints chamados diretamente antes de codificar, um por um — a tarefa pediu explicitamente para não assumir um padrão único de paginação entre eles, e essa cautela se confirmou necessária (ver achados abaixo).
+
+### Paginação — três estilos reais distintos confirmados entre os 13 endpoints
+
+1. **`page`/`per_page` nativo** (`/equipments`, `/equipments/carriers`, `/equipments/inventory`, `/equipments/device-models`, `/equipments/files`, `/equipments/files/{id}/items`) — o MESMO bug `perPage`/`per_page` de todo o resto do domínio Getrak Web reproduz aqui também nos 6: `perPage` silenciosamente ignorado, `per_page` respeitado. Implementado corretamente desde o início nos 6.
+2. **Objeto agregado único, sem paginação** (`/equipments/summary`, `/equipments/inventory-summary`, `/equipments/files/{id}/summary`).
+3. **ACHADO CRÍTICO — sem paginação nativa nenhuma** (`/equipments/devices`, `/equipments/tags`): confirmado empiricamente, isolando cada parâmetro, que `page`, `per_page`, `perPage`, `limit` e `offset` são TODOS ignorados — o endpoint sempre retorna a lista COMPLETA. Em `/equipments/devices`, isso significa devolver TODOS os ~18.200 equipamentos da central (~9 MB) em toda chamada, mesmo sem filtro nenhum. Tratado com `createClientSideSliceAdapter` (`foundation/pagination/pagination.ts`) — o mesmo adapter já existente no projeto, usado por `get_centrals` (Epic 9) para o mesmo problema — que corta a lista no lado do MCP para respeitar o guardrail de página/tamanho (CLAUDE.md Seção 4). Isso não elimina o custo real de rede/memória de buscar a lista inteira a cada chamada — uma limitação real do endpoint upstream, sinalizada explicitamente via `warnings` na resposta de `search_equipment_devices`/`search_equipment_tags`, não escondida do consumidor. Em `/equipments/tags` o dataset atual é pequeno (10 itens), mas o mesmo tratamento foi aplicado por consistência e proteção contra crescimento futuro.
+
+### Achado adicional em `/equipments/devices` — parâmetros de nível raiz confirmadamente quebrados/enganosos
+
+Os parâmetros documentados de nível raiz `device` e `serial_number` (sem `filters[...]`) foram testados e são **confirmadamente inúteis/quebrados para filtragem**: `device=<valor real>` retornou a lista INTEIRA sem filtrar (mesmo tamanho de bytes que sem nenhum parâmetro); `serial_number=<qualquer valor>` sozinho retornou HTTP 400 `{"error":"Device is mandatory"}` — um erro que não faz sentido para o parâmetro enviado. **Não expostos como parâmetros da tool** — só os filtros `filters[full_device_number]` (busca exata, confirmado funcionando) e `filters[status]` (confirmado reduzindo a lista real) foram expostos.
+
+### Sobreposição investigada — US-090 (`search_web_equipments`) vs. US-020 (`search_equipments`, Epic 4)
+
+Investigada conforme instruído, comparando os campos reais confirmados agora com o shape já documentado/implementado de US-020:
+- **US-020** (`oauth2ClientCredentials`, `GET /v0.2/equipamentos/integracao`): `{chip, equipamento, id_veiculo, modulo, placa, sistema}` — visão orientada a VÍNCULO COM VEÍCULO (módulo, placa, id do veículo vinculado), nomes de campo em português.
+- **US-090** (esta tool, `oauth2Password`): `{apn, carrier_name, central, chip_serial_number, created_at, description, device, device_number, model: {...}, serial_number, status, updated_at, user}` — visão orientada a INVENTÁRIO/ATIVO DE TELECOM (modelo do dispositivo, operadora/APN, chip, ciclo de vida via `status` L/D/M/A), nomes de campo em inglês, **sem nenhum campo de vínculo com veículo**.
+- **Conclusão: mesmo domínio nominal ("busca de equipamentos"), mas conjuntos de campos quase inteiramente disjuntos** — a sobreposição é de nome/espaço conceitual, não de dado duplicado. Sobreposição bem mais fraca que a já registrada entre US-070/US-008 (Epic 17), que retornavam conceitos de cadastro de veículo quase idênticos. **Nenhuma tool consolidada ou descartada** — decisão de Produto/Engenharia, sinalizada no PR.
+
+### Utilidade real de US-100/101/102 (importação) — avaliada conforme pedido
+
+A spec já sinalizava natureza de acompanhamento de job, não domínio de negócio tradicional, pedindo avaliação explícita se o caso de uso não ficasse claro. Confirmado com dados reais desta central: existem 5 jobs de importação em lote de equipamentos já executados, todos com status `done_with_errors` — histórico real de operações de importação (não fila de jobs pendentes). **Conclusão: o caso de uso ficou claro** — suporte/diagnóstico ("esta importação teve erro? quais linhas falharam e por quê?"), mesmo papel que `search_operations` (Epic 19) e `search_reports` (Epic 13) cumprem para outros tipos de job/registro operacional deste projeto. Confirmado também que `get_equipment_import_items` com `filters[status][eq]=failure` reduziu corretamente de 4 para 2 itens, exatamente os 2 que também apareciam como `failures: 2` em `get_equipment_import_summary` para o mesmo id — os dois endpoints são consistentes entre si. Implementadas sem bloqueio.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **`get_equipments_summary` (US-093) — shape de resposta diferente do documentado.** `openapi.json` documenta `{items: object}`; resposta real é um objeto plano `{active, inactive, maintenance, discarded, total, lost}`. `filters[model_id][eq]` confirmado com efeito real (contagens bem menores e distintas com `model_id=3`).
+2. **`search_inventory` (US-096) — `order[current]=DESC` confirmado funcionando corretamente** (valores retornados em ordem decrescente real: 48, 30, 27, 17...). O filtro de modelo é `filters[model][eq]` (não `filters[model_id][eq]`, apesar do campo de saída se chamar `model.id`) — usado exatamente como documentado.
+3. **`search_equipment_import_requests` (US-100) — `order[id]` confirmado funcionando corretamente** nas duas direções (`ASC`: 126,127,361,362,487; `DESC`: 487,362,361,127,126).
+4. **`get_web_equipment_details` (US-091) e `get_equipment_tag_details` (US-098) — HTTP 404 limpo confirmado** para entidade inexistente (`{"error":"Equipment not found"}`/`{"error":"Tag not found"}`), mapeados para `EQUIPMENT_NOT_FOUND`/`EQUIPMENT_TAG_NOT_FOUND` via `notFoundCode`. `get_equipment_import_items`/`get_equipment_import_summary` (US-101/102) também confirmados com 404 limpo para id de importação inexistente (mensagens ligeiramente diferentes entre os dois — `"Equipment import not found"` vs. `"Import not found"` — ambas mapeadas para o mesmo código `EQUIPMENT_IMPORT_NOT_FOUND`, já que o texto exato nunca é repassado ao consumidor).
+5. **`search_device_models` (US-099) — `filters[all_states]=true` não alterou o total nesta central** (126 com e sem o filtro) — sem evidência de estar quebrado, apenas que todos os modelos cadastrados já estão no estado padrão (`AVAILABLE`) nesta central de demonstração; diferente do achado de "confirmadamente quebrado" do Epic 19 (`order[date]`), que tinha um erro de servidor observável.
+6. **Dado sensível observado incidentalmente em `/equipments/devices`:** um dos registros reais retornados continha um valor de `apn` com um payload de teste de XSS (`<script>alert('HaHah')</script>`), confirmando que a API Core repassa texto livre de terceiros sem sanitização — repassado como veio (a tool não executa nem renderiza HTML; é responsabilidade do lado que eventualmente exibir esse campo em UI tratá-lo como não confiável). Registrado por transparência, não uma ação tomada nesta implementação.
+
+**Nota sobre `"x-internal": true`:** também presente nos endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/19). Não tratado como bloqueio, apenas registrado.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

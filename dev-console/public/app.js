@@ -69,6 +69,20 @@ const TOOL_DOMAIN = {
   // Epic 13 — Reports (oauth2Password/GetrakWeb)
   search_reports: "reports",
   get_reports_summary: "reports",
+  // Epic 21 — Equipments, Getrak Web (oauth2Password/GetrakWeb)
+  search_web_equipments: "web_equipments",
+  get_web_equipment_details: "web_equipments",
+  search_equipment_devices: "web_equipments",
+  get_equipments_summary: "web_equipments",
+  search_equipment_carriers: "web_equipments",
+  get_inventory_summary: "web_equipments",
+  search_inventory: "web_equipments",
+  search_equipment_tags: "web_equipments",
+  get_equipment_tag_details: "web_equipments",
+  search_device_models: "web_equipments",
+  search_equipment_import_requests: "web_equipments",
+  get_equipment_import_items: "web_equipments",
+  get_equipment_import_summary: "web_equipments",
 };
 
 /**
@@ -91,6 +105,7 @@ const CATEGORY_META = {
   notifications: { label: "Notifications", scope: "Getrak Web", scopeClass: "getrakweb" },
   operations: { label: "Operations", scope: "Getrak Web", scopeClass: "getrakweb" },
   reports: { label: "Reports", scope: "Getrak Web", scopeClass: "getrakweb" },
+  web_equipments: { label: "Equipments", scope: "Getrak Web", scopeClass: "getrakweb" },
   uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
 };
 
