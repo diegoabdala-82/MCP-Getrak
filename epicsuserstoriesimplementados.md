@@ -498,6 +498,83 @@ Confirmado que os dois pares detalhe/anexos deste epic (US-053/054 e US-059/060)
 
 ---
 
+## Epic 20 — Journeys (Getrak Web, Release 3, novo 20/08/2026) (US-080 a US-089)
+
+| Tool | User Story | Endpoint(s) | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_journeys` | US-080 | `GET /v2.0/journeys` (primário) + fallback `GET /v1.0/journeys` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_journey_details` | US-081 | `GET /v1.0/journeys/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_journeys_summary` | US-082 | `GET /v1.0/journeys/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_drivers` | US-083 | `GET /v2.0/journeys/drivers` (primário) + fallback `GET /v1.0/journeys/drivers` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_driver_details` | US-084 | `GET /v2.0/journeys/drivers/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_drivers_summary` | US-085 | `GET /v1.0/journeys/drivers/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_identifiers` | US-086 | `GET /v1.0/journeys/identifiers` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_identifiers_summary` | US-087 | `GET /v1.0/journeys/identifiers/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_available_vehicles_for_journey` | US-088 | `GET /v1.0/journeys/vehicles/available` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_identifier_history` | US-089 | `GET /v1.0/journeys/identifier-history` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+
+**Status:** ✅ 10 tools implementadas e testadas (mocks/contrato + validação real via chamada direta a cada endpoint e via smoke test stdio do próprio servidor MCP), 44 testes automatizados novos (492 no total, incluindo 1 novo teste de fundação para o achado do HTTP 204 em `ApiCoreClient`). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `journeys` (sem prefixo `web_`) — mesma convenção de nomenclatura já usada para `operations`/`reports`/`notifications`/`maintenance` (domínios Getrak Web sem contraparte técnica a desambiguar). Confirmado, por inspeção completa da tag `Journeys` no `openapi.json`, que ela também documenta um número grande de operações de escrita (`POST`/`PUT`/`DELETE` de viagens, motoristas, identificadores, reprocessamento, fechamento de viagem, vínculo em lote de veículos a motorista) — nenhuma delas implementada, só os 10 endpoints de leitura.
+
+**Validado contra produção real em 20/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os epics anteriores. Os 10 endpoints (e ambas as versões de `journeys`/`journeys/drivers`) chamados diretamente antes de codificar.
+
+### GAP-020 — duas versões vigentes simultaneamente (`v1.0`/`v2.0`) para `journeys` e `journeys/drivers`
+
+Confirmado no `openapi.json` que nenhuma das duas versões é `deprecated` para `GET /journeys` e `GET /journeys/drivers` — exceção real à regra geral do projeto de "só existe uma versão vigente por vez". Resolvido pela decisão de Engenharia já registrada nas specs de US-080/US-083 ("Opção A", 16/08/2026), aplicada nesta implementação:
+
+- `search_journeys`/`search_drivers` são tools **únicas** — não foram criadas tools separadas por versão.
+- **v2.0 como fonte primária** (mais parâmetros de filtro/seleção de campo em `journeys`, embora o inverso valha para alguns filtros específicos de `journeys` — ver achado de `filters[client_id]` abaixo).
+- **Fallback interno para v1.0**, implementado em `callWithV1Fallback` (novo helper em `src/domain/journeys/shared.ts`), acionado só quando a chamada a v2.0 falha com um erro real de upstream (`UPSTREAM_ERROR`/`UPSTREAM_UNAVAILABLE`/`TIMEOUT`) — nunca em erro de validação/autorização do MCP (que nem chega ao handler) e nunca exposto ao agente chamador (a resposta final é normalizada da mesma forma independente de qual versão respondeu; só um `warning` interno sinaliza quando o fallback foi usado).
+- **`version` não é parâmetro de nenhuma tool** — confirmado por teste automatizado dedicado (`"version" in definition.inputSchema.shape` é `false`).
+
+**O fallback NÃO foi acionado de verdade durante os testes em homologação** — `v2.0/journeys` e `v2.0/journeys/drivers` funcionaram normalmente em toda a bateria de testes reais contra produção (central de demonstração). A lógica de fallback foi validada exclusivamente via simulação determinística nos testes automatizados (mock de `ApiCoreClient` que rejeita a chamada a `/v2.0/...` e resolve a chamada a `/v1.0/...`), não observada organicamente.
+
+### Achado crítico — o endpoint de fallback de `search_drivers` está QUEBRADO em produção
+
+`GET /v1.0/journeys/drivers` retorna **HTTP 500** (`{"error":"Internal error"}`) para **qualquer chamada testada, inclusive sem nenhum parâmetro** — não é um filtro específico quebrado (padrão usual encontrado em epics anteriores), é o endpoint de LISTA inteiro. Confirmado que os endpoints vizinhos, também `v1.0`, funcionam normalmente: `GET /v1.0/journeys/drivers/summary` (200) e `GET /v1.0/journeys/drivers/{id}` (200, shape camelCase — `clientId`, `limitTime`, `driverLicense`, etc., bem diferente do snake_case de v2.0).
+
+**Decisão registrada:** o fallback para `search_drivers` foi implementado exatamente como pedido pela spec (a decisão de arquitetura de US-083 não condiciona a implementação a v1.0 estar saudável) — mas isso significa que, na prática, **não há ganho real de resiliência hoje**: se `v2.0/journeys/drivers` falhar de verdade em produção, o fallback vai falhar também (o consumidor recebe o erro normalizado da falha de v1.0, nunca um crash — mas não uma recuperação bem-sucedida). Nenhum valor foi inventado para mascarar isso. Sinalizado aqui e no PR para a Getrak corrigir o endpoint v1.0, momento em que o fallback já implementado passaria a funcionar sem nenhuma mudança de código adicional.
+
+### Achado — `include[]=driver` tem shape diferente entre v1.0 e v2.0 de `GET /journeys` (fallback não é 100% schema-transparente)
+
+- v1.0: `driver: {id, name, email, document, system, device}`
+- v2.0: `driver: {id, name}`
+
+Ou seja, um consumidor que dependesse dos campos extras de v1.0 (email/document/system/device) veria menos campos no caso normal (servido por v2.0). Não normalizado artificialmente para "esconder" essa diferença — apenas documentado; a spec de US-080 não exige paridade de campos entre as duas versões, só que a viagem seja retornada.
+
+### Achado crítico — `filters[client_id]` em `GET /v2.0/journeys` está quebrado para usuários não-admin
+
+Documentado como "Admin/operator only: scope the listing to a specific client. Ignored for client/subclient users" — mas testado contra produção real (usuário de teste não-admin, central de demonstração) e confirmado que **qualquer valor de `client_id` diferente de `0` retorna HTTP 500** (`client_id=0` retorna 200 normalmente, sem filtrar nada de verdade). A documentação promete "ignorado silenciosamente"; o comportamento real é "quebra a chamada". Por isso `client_id` **não é exposto** como parâmetro de `search_journeys` — mesmo padrão de "não expor parâmetro confirmadamente quebrado" já usado no Epic 19 (`order[date]`).
+
+### Achado — `filters[id][in][]` em `GET /v2.0/journeys/drivers` é silenciosamente ignorado
+
+Testado com e sem o sufixo `[]` — em ambos os casos a chamada retorna HTTP 200 com o total NÃO filtrado, ignorando os ids pedidos (confirmado comparando os ids retornados com os solicitados: não coincidem). Por isso `search_drivers` não expõe um filtro de múltiplos ids. O filtro singular não documentado `filters[id]` (exato, um único id) funciona, mas não foi pedido por nenhuma User Story deste epic e não foi exposto.
+
+### Achado crítico em `get_driver_details` (US-084) — HTTP 204 (sem corpo) para id inexistente, não 404
+
+Diferente do padrão usual do resto do projeto (404 limpo), `GET /v2.0/journeys/drivers/{id}` responde **HTTP 204 sem corpo** para um id inexistente. Como `response.ok` é `true` para 204, o cliente HTTP genérico (`ApiCoreClient.get`) tentaria `response.json()` num corpo vazio, lançando um erro de parse que virava `INTERNAL_ERROR` genérico — não um `DRIVER_NOT_FOUND` de domínio. **Corrigido na fundação**, não como hack pontual desta tool: `ApiCoreClient.get` agora trata `status === 204` retornando `undefined` em vez de tentar fazer parse de JSON (204 nunca tem corpo por definição HTTP — é uma correção de cliente HTTP genericamente correta, não específica deste endpoint). `get_driver_details` verifica `raw === undefined` e lança `DRIVER_NOT_FOUND` explicitamente. Validado end-to-end contra produção real (id inexistente → `DRIVER_NOT_FOUND` no envelope de erro do MCP, não um erro cru).
+
+### Achado crítico em `get_identifier_history` (US-089) — `filters[driver_id]` obrigatório na prática
+
+Mesmo padrão já visto no Epic 19 (US-079): omitir `filters[driver_id]` não produz um HTTP 400 limpo, produz **HTTP 500** `{"error":"Internal error"}` genérico. `driver_id` é obrigatório no schema Zod da tool — único ponto real de proteção do consumidor, validado antes de qualquer chamada à API Core (`ToolRuntime`). Um `driver_id` válido mas sem histórico (ou inexistente) retorna HTTP 200 com lista vazia normalizada, não erro. `start_date`/`end_date` deste endpoint vêm em formato `"YYYY-MM-DD HH:mm:ss"` (espaço, sem `T`/`Z`) — diferente do ISO 8601 usado no resto do domínio Journeys; repassado como veio, não reformatado.
+
+### Achado — `GET /v1.0/journeys/vehicles/available` (US-088) não pagina sob nenhuma convenção testada
+
+Confirmado que `page`/`per_page` não têm nenhum efeito — sempre retorna a lista completa (`{data: [...]}`, sem `page`/`pages`/`total` na resposta; 43 itens na central de demonstração). Mesmo tratamento já usado em `get_centrals`/Epic 21 (`search_equipment_devices`/`search_equipment_tags`): `createClientSideSliceAdapter`, com a limitação sinalizada via `warnings`, não escondida do consumidor.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **Bug de paginação `perPage`/`per_page` reconfirmado** em `journeys`, `journeys/drivers` (ambas versões de cada) e `journeys/identifiers` — mesmo padrão de todo o resto do domínio Getrak Web.
+2. **`fields[]` "Defaults to id only" confirmado** em `journeys` (v1.0 e v2.0) e `journeys/identifiers`; em `journeys/drivers` v2.0 o default documentado (`id, name, status, device, registration, client_id`) também foi confirmado.
+3. **`filters[status][in][]` (journeys) exige o sufixo de array `[]`** — confirmado em v1.0 (sem `[]`, filtro silenciosamente ignorado); mesmo padrão em v2.0.
+4. **`order[name]` em `journeys/drivers` confirmado FUNCIONANDO** corretamente nas duas direções — a primeira leitura de uma amostra pequena pareceu estranha (nomes começando por caracteres não alfabéticos), mas era comparação lexicográfica simples correta, não um bug.
+5. **`id` do identificador GPS (US-086/US-089) é STRING** (código de dispositivo/chip), não numérico — repassado como veio.
+
+**Nota sobre `"x-internal": true`:** também presente em todos os endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/14/15/19/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

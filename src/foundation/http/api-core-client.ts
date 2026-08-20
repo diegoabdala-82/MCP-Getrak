@@ -125,6 +125,19 @@ export class ApiCoreClient {
           });
         }
 
+        // Epic 20 (US-084): confirmado contra produção real que
+        // GET /v2.0/journeys/drivers/{id} responde HTTP 204 (sem corpo) para
+        // um id inexistente, não 404 — `response.ok` é `true` para 204, então
+        // sem este caso especial `response.json()` lançaria um erro de parse
+        // (corpo vazio) que virava INTERNAL_ERROR genérico em vez de um
+        // NOT_FOUND de domínio. 204 nunca tem corpo por definição HTTP, então
+        // este é um caso geral do cliente, não um hack pontual desta tool —
+        // a tool chamadora decide o que "sem corpo" significa (ex.:
+        // DRIVER_NOT_FOUND).
+        if (response.status === 204) {
+          return undefined as T;
+        }
+
         return (await response.json()) as T;
       },
       isRetryableError,
