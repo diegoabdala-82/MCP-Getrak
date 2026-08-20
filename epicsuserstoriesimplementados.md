@@ -380,6 +380,66 @@ A spec já sinalizava natureza de acompanhamento de job, não domínio de negóc
 
 ---
 
+## Epic 15 — Clients (Getrak Web, Release 3, novo 19/08/2026) (US-061 a US-066)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_web_clients` | US-061 | `GET /v1.0/client` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_clients_summary` | US-062 | `GET /v1.0/clients/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_subclients_summary` | US-063 | `GET /v1.0/clients/subclients/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_entity_import_requests` | US-064 | `GET /v1.0/clients/import-entity` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_entity_import_details` | US-065 | `GET /v1.0/clients/import-entity/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_entity_import_items` | US-066 | `GET /v1.0/clients/import-entity/{id}/items` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 6 tools implementadas e testadas (mocks/contrato + validação real), 27 testes automatizados novos (406 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `web_clients` — deliberadamente distinto de `accounts`/`search_clients` (Epic 9, `ClientsIntegracao`/`oauth2ClientCredentials`), mesma convenção de `web_users` vs. `accounts`, `web_vehicles` vs. `vehicles` e `web_equipments` vs. `equipments`.
+
+**Confirmado que a tag `Clients` do `openapi.json` também documenta operações de escrita** — `PUT /v1.0/clients/{id}/status`, `PUT /v1.0/clients/batch-status`, `PUT /v1.0/clients/subclients/{id}/status`, `PUT /v1.0/clients/subclients/batch-status` (mudança de status de cliente/subcliente, individual e em lote) e `POST /v1.0/clients/import-entity` (upload de arquivo de importação). Nenhuma delas implementada — só os 6 endpoints de leitura.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics anteriores. Os 6 endpoints chamados diretamente antes de codificar.
+
+### Achado crítico em `search_web_clients` (US-061) — superfície de campos muito mais restrita que o documentado
+
+O schema de resposta documentado no `openapi.json` promete um item de cliente completo (`business_phone, city, document, email, id, name, neighborhood, state, status, street_address, street_number, type`). Na prática:
+- **Sem `fields[]`, a resposta real só traz `{id, name}`.**
+- **`fields[]` tem um enum documentado restrito a só 4 valores:** `id`, `name`, `city`, `createdAt`. Confirmado empiricamente que pedir qualquer campo fora desse enum (`type`, testado) derruba a chamada inteira com HTTP 500 (`{"error":"Property \"type\" was not found in \"Client\". Make sure your query is correct."}`).
+- **Conclusão: os campos de contato/documento do cliente (CNPJ/documento, telefone, e-mail, endereço, tipo, status) não são obtíveis por esta tool**, apesar de estarem documentados no schema de resposta do próprio endpoint — só `id`, `name`, e opcionalmente `city`/`created_at`. Implementado com `fields` restrito ao mesmo enum de 4 valores confirmado seguro, e a descrição da tool já avisa explicitamente para usar `search_clients` (Epic 9) quando esses dados forem necessários.
+- `fields[]=createdAt` (camelCase de entrada) mapeia corretamente para a chave de saída `created_at` (snake_case) — mesmo padrão camelCase-de-entrada/snake_case-de-saída já visto em outros endpoints Getrak Web (ex.: `GET /v1.0/users/{id}`, Epic 16).
+
+### Achado que reproduz o padrão do Epic 19 (oposto do Epic 13) — formato de wire de `filters[id][in]`
+
+Confirmado que `filters[id][in]` em `GET /v1.0/client` **exige o sufixo de array `[]`**: `filters[id][in][]=<id1>&filters[id][in][]=<id2>` filtrou corretamente para exatamente os 2 ids reais pedidos; sem o `[]` (chave repetida sem sufixo), o filtro foi **silenciosamente ignorado** (retornou o total não filtrado, 2102). Mesmo padrão de `/v1.0/operations` (Epic 19), oposto do confirmado em `/v1.0/report/reports` (Epic 13) e em `/v1.0/equipments`/`/v1.0/equipments/summary` (Epic 21, comma-joined) — mais uma reconfirmação de que cada endpoint precisa ser validado individualmente.
+
+Demais filtros confirmados funcionando com totais reais distintos: `filters[status]` (`Y`→1868, `S`→88 — consistentes com `get_clients_summary`), `filters[type]` (`individual`→148, `legal-entity`→27), `filters[name][inc]`/`filters[city][inc]` (substring), `filters[created_at][gte]`/`[lte]` (intervalo). `order[id]`/`order[name]` confirmados funcionando corretamente nas duas direções. Filtro sem correspondência retorna lista vazia normalizada, nunca erro.
+
+### Sobreposição investigada — US-061 (`search_web_clients`) vs. US-030 (`search_clients`, Epic 9)
+
+Investigada conforme instruído. Sem credencial `oauth2ClientCredentials` disponível para testar US-030 ao vivo (mesma limitação já registrada para todo o Epic 2/4/9), a comparação foi feita contra o shape já documentado/confirmado de US-030:
+- **US-030** (`oauth2ClientCredentials`, `GET /v0.2/clientes/integracao`): campos documentados incluem `ativo, cel, cel2, cnpj, descricao, email, email2, endereco, ...` — nomes em português, aparentando ser o registro de cliente **completo** (contato, documento, endereço).
+- **US-061** (esta tool, `oauth2Password`): **estruturalmente limitada pelo próprio endpoint** a `{id, name}` (+ opcionalmente `city`/`created_at` via `fields[]`) — ver achado acima.
+- **Conclusão: diferente da sobreposição fraca já registrada em US-090/US-020 (Epic 21, campos quase totalmente disjuntos por natureza conceitual), aqui os dois endpoints parecem representar o MESMO registro de cliente subjacente** (mesma central, mesmo conceito de "cliente") — mas com uma diferença real e mensurável de superfície exposta, que é uma limitação do próprio endpoint `GET /v1.0/client`, não uma escolha desta implementação. **Nenhuma tool consolidada ou descartada** — decisão de Produto/Engenharia, sinalizada no PR. Recomendação prática incluída na descrição da tool: se o consumidor precisar de CNPJ/telefone/e-mail, usar `search_clients` (Epic 9), não esta.
+
+### Achado crítico em `get_entity_import_items` (US-066) — HTTP 500 em vez de 404 para id inexistente
+
+Diferente de `get_entity_import_details` (US-065), que retorna um HTTP 404 limpo (`{"error":"import not found"}`) para um id de importação inexistente, `get_entity_import_items` retorna **HTTP 500** para o MESMO cenário conceitual (`{"status":500,"error":"Import entity with id 999999 not found."}`). Isso é tratado corretamente **sem nenhum código extra**, graças ao comportamento já existente de `normalizeUpstreamHttpError` (`foundation/errors/error-normalizer.ts`): qualquer status HTTP fora de 404/401/403/429/5xx-transiente cai no branch final, que usa `domainCode ?? UPSTREAM_ERROR` — ou seja, o HTTP 500 com `notFoundCode: "ENTITY_IMPORT_NOT_FOUND"` já mapeia corretamente para o mesmo código usado pelo 404 limpo de US-065. Esse é o MESMO tradeoff já aceito e documentado em `get_user_details` (Epic 16) e `get_vehicle_by_plate` (Epic 17): um HTTP 500 genuinamente não relacionado a "não encontrado" também seria mapeado para `ENTITY_IMPORT_NOT_FOUND` por esse mesmo mecanismo — aceito conscientemente, não uma omissão.
+
+### Utilidade real de US-064/065/066 (importação de entidade) — avaliada conforme pedido
+
+Mesma natureza operacional de job de importação já observada em US-100/101/102 (Epic 21). Confirmado com dados reais desta central: **42 requisições reais de importação de clientes/subclientes** (31 `client` + 11 `subclient`, confirmado com `filters[entity]`), todas com status `done_with_errors` — histórico real de importações executadas, não uma fila de jobs pendentes. **Conclusão: o caso de uso é claro** — suporte/diagnóstico de erros de carga em lote, mesmo papel que US-100/101/102 cumprem para importação de equipamentos. Implementadas sem bloqueio.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **Path singular vs. plural em `GET /v1.0/client`:** o `openapi.json` declara o path como singular (`/v1.0/client`) em `paths`, mas o próprio `x-codeSamples` usa o plural (`/v1.0/clients`). Confirmado empiricamente que ambos retornam resultado idêntico (mesmo total, mesmos itens) — implementado com o path singular, por ser o que está de fato declarado em `paths` (a fonte de verdade estrutural do documento).
+2. **`get_clients_summary`/`get_subclients_summary` (US-062/063) — nenhum parâmetro de request; resposta real `{active, inactive, suspended, total}`**, exatamente como documentado. Consistência cruzada confirmada: `active: 1868` e `suspended: 88` de `get_clients_summary` batem exatamente com `filters[status]=Y`/`filters[status]=S` de `search_web_clients`.
+3. **Pagination — mesmo bug `perPage`/`per_page` do resto do domínio Getrak Web**, reproduzido nos 3 endpoints de lista deste domínio (`/v1.0/client`, `/v1.0/clients/import-entity`, `/v1.0/clients/import-entity/{id}/items`).
+4. **`filters[entity]` em `search_entity_import_requests`** confirmado funcionando: `client`→31, `subclient`→11, soma exata do total sem filtro (42).
+5. **`filters[status][eq]`/`order[name]` em `get_entity_import_items`** confirmados funcionando via o próprio `x-codeSamples` do `openapi.json` e teste real (reduziu corretamente para o item com status `failure`).
+
+**Nota sobre `"x-internal": true`:** também presente em todos os 6 endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/19/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

@@ -83,6 +83,13 @@ const TOOL_DOMAIN = {
   search_equipment_import_requests: "web_equipments",
   get_equipment_import_items: "web_equipments",
   get_equipment_import_summary: "web_equipments",
+  // Epic 15 — Clients, Getrak Web (oauth2Password/GetrakWeb)
+  search_web_clients: "web_clients",
+  get_clients_summary: "web_clients",
+  get_subclients_summary: "web_clients",
+  search_entity_import_requests: "web_clients",
+  get_entity_import_details: "web_clients",
+  get_entity_import_items: "web_clients",
 };
 
 /**
@@ -106,6 +113,7 @@ const CATEGORY_META = {
   operations: { label: "Operations", scope: "Getrak Web", scopeClass: "getrakweb" },
   reports: { label: "Reports", scope: "Getrak Web", scopeClass: "getrakweb" },
   web_equipments: { label: "Equipments", scope: "Getrak Web", scopeClass: "getrakweb" },
+  web_clients: { label: "Clients", scope: "Getrak Web", scopeClass: "getrakweb" },
   uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
 };
 
