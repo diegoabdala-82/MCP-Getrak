@@ -440,6 +440,64 @@ Mesma natureza operacional de job de importação já observada em US-100/101/10
 
 ---
 
+## Epic 14 — Maintenance (Getrak Web, Release 3, novo 20/08/2026) (US-051 a US-060)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_fuel_supplies` | US-051 | `GET /v2.0/maintenance/fuel-supply` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_fuel_supply_summary` | US-052 | `GET /v2.0/maintenance/fuel-supply/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_fuel_supply_details` | US-053 | `GET /v2.0/maintenance/fuel-supply/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_fuel_supply_attachments` | US-054 | `GET /v2.0/maintenance/fuel-supply/{id}/attachments` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_maintenance_services` | US-055 | `GET /v2.0/maintenance/services` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenance_services_summary` | US-056 | `GET /v2.0/maintenance/services/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_maintenances` | US-057 | `GET /v2.0/maintenance/maintenances` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenances_summary` | US-058 | `GET /v2.0/maintenance/maintenances/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenance_details` | US-059 | `GET /v2.0/maintenance/maintenances/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenance_attachments` | US-060 | `GET /v2.0/maintenance/maintenances/{id}/attachments` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+
+**Status:** ✅ 10 tools implementadas e testadas (mocks/contrato + validação real), 42 testes automatizados novos (448 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `maintenance` (sem prefixo `web_`) — não existe nenhum equivalente `oauth2ClientCredentials`/`Integracao` deste domínio em nenhum epic anterior, mesma convenção de nomenclatura já usada para `operations`/`reports`/`notifications`.
+
+**Confirmado que todos os 10 endpoints são `v2.0` e nenhum é `deprecated`** — diferente de outros epics anteriores, aqui não havia nenhum equivalente `v0.x`/`v1.0` a evitar. Confirmado também, por inspeção completa da tag `Maintenance`, que ela documenta um número grande de operações de escrita (`POST`/`PUT`/`DELETE` de abastecimento, manutenção — incluindo `bulk-remove` e `finish` — e serviço — incluindo `bulk-remove` e `bulk-update/status` — além de `POST /v2.0/maintenance/attachments/upload-url`) — nenhuma delas implementada, só os 10 endpoints de leitura.
+
+**Validado contra produção real em 20/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics anteriores. Os 10 endpoints chamados diretamente antes de codificar, um por um — a tarefa pediu explicitamente para não assumir um padrão único de paginação entre eles, e essa cautela se confirmou necessária mais uma vez (achados abaixo).
+
+### Achado crítico — DOIS estilos de envelope de paginação diferentes dentro do MESMO domínio Maintenance
+
+- `GET /v2.0/maintenance/fuel-supply` e `GET /v2.0/maintenance/maintenances` usam o padrão plano `{data, page, pages, total}` já visto em todo o resto do domínio Getrak Web — `extractPagePerPageEnvelope` reaproveitado sem alteração.
+- **`GET /v2.0/maintenance/services` usa um envelope ANINHADO real: `{data, pagination: {total, page, itemsPerPage, totalPages}}`** — confirmado empiricamente, e ainda por cima com chaves camelCase diferentes das que o próprio `openapi.json` documenta para essas mesmas chaves (`items_per_page`/`total_pages`, snake_case) — mais uma divergência documentação-vs-realidade (CLAUDE.md Seção 7). `extractPagePerPageEnvelope` não se aplica; implementada uma extração local (`extractServicesEnvelope`) só para este endpoint.
+- Em ambos os estilos, o NOME REAL do parâmetro de query de tamanho de página continua sendo `per_page` — confirmado que nem `perPage` nem `items_per_page` (tentativa alinhada ao nome de resposta) têm qualquer efeito nos 3 endpoints de lista deste domínio.
+
+### Achado crítico — validação de existência de veículo é específica do sub-domínio `fuel-supply`, não do domínio Maintenance inteiro
+
+Confirmado que `filters[vehicle_id]` em `search_fuel_supplies`/`get_fuel_supply_summary` retorna **HTTP 404** (`{"error":"Vehicle not found"}`) quando o `vehicle_id` não existe — diferente de todo outro filtro deste domínio (que retornam lista/resumo vazio normalizado). Testado explicitamente para descartar a hipótese de regra geral: o MESMO conceito de filtro (`filters[vehicle_id]`/`filters[vehicle_id][in][]`) em `search_maintenances` e `get_maintenances_summary` retorna resultado **zerado/vazio normalmente (HTTP 200)** para um `vehicle_id` inexistente. Ou seja, a validação de existência é uma regra do sub-domínio `fuel-supply` especificamente, não do domínio `Maintenance` como um todo — reforça, mais uma vez, que nem sub-endpoints do mesmo domínio nominal podem ser assumidos uniformes. `notFoundCode: "VEHICLE_NOT_FOUND"` foi aplicado em `search_fuel_supplies`/`get_fuel_supply_summary` (uso não convencional em tools de lista/resumo, normalmente reservado a lookups por id, mas justificado pelo comportamento real confirmado) e NÃO aplicado em `search_maintenances`/`get_maintenances_summary`.
+
+### Achado crítico em `get_maintenance_details` (US-059) — a própria spec seria violada sem uma correção não documentada
+
+A spec desta User Story exige explicitamente que o detalhe inclua "serviços associados + última execução", e o schema de resposta documentado no `openapi.json` mostra `services`/`last_execution` como propriedades sempre presentes do objeto de detalhe. **Isso é falso no comportamento real**: `GET /v2.0/maintenance/maintenances/{id}` sem parâmetro extra NÃO retorna nenhum dos dois campos (ausentes, não `null`). O endpoint só os inclui quando recebe o parâmetro `include[]` — documentado no `openapi.json` **apenas para o endpoint de LISTA irmão** (`GET /v2.0/maintenance/maintenances`), não para o de detalhe — mas confirmado, na prática, aceito e necessário também no detalhe. **Se a tool não enviasse `include[]=last_execution&include[]=services` proativamente, ela violaria seu próprio critério de aceite sem nenhum aviso.** Corrigido: `get_maintenance_details` sempre envia os dois valores de `include[]`, incondicionalmente, não exposto como parâmetro de entrada (não haveria motivo de negócio para pedir menos do que a própria spec exige).
+
+### Decisão de bundle — US-054/US-060 (anexos), avaliada conforme pedido
+
+**Decisão: mantidos como tools SEPARADAS** de `get_fuel_supply_details`/`get_maintenance_details`, não bundled. Racional, baseado em evidência coletada antes de decidir:
+1. **Não existe mecanismo nativo de composição.** `GET /v2.0/maintenance/maintenances/{id}` — que TEM um `include[]` funcional e confirmado (usado para `last_execution`/`services`, ver achado acima) — foi testado explicitamente com `include[]=attachments` e não teve NENHUM efeito (resposta idêntica com ou sem esse valor). Ou seja, mesmo o único mecanismo de composição real que este domínio tem não se estende a anexos — não é uma limitação genérica de "endpoints de detalhe não aceitam parâmetro nenhum" (esse não é o caso), é uma limitação real e específica, confirmada por teste direto, não presumida.
+2. **Anexos são um recurso com ciclo de vida próprio.** Cada item tem `status` (`completed`/`failed`/`pending_upload`) e uma `file_url` pré-assinada com **expiração curta** (`expires_at` ~1h após `created_at`, confirmado no exemplo do `openapi.json`). Embutir isso sempre no detalhe obrigaria toda chamada de `get_fuel_supply_details`/`get_maintenance_details` a pagar o custo de uma segunda consulta e devolver links que podem expirar antes de serem usados, mesmo quando o consumidor não pediu anexos.
+3. **Consistente com o padrão já estabelecido no resto do projeto** para pares detalhe+drill-down relacionado: sempre tools separadas (US-065/US-066 no Epic 15, US-101/US-102 no Epic 21, `get_equipment_tag_details` vs. `search_equipment_tags` no Epic 21). Bundlar aqui seria a primeira exceção a esse padrão em todo o projeto, sem um motivo técnico forte o suficiente (a API não oferece nenhuma forma nativa de compor os dois).
+
+Confirmado que os dois pares detalhe/anexos deste epic (US-053/054 e US-059/060) se comportam de forma **consistente** entre si para id inexistente — ambos retornam HTTP 404 limpo com a mesma mensagem em cada par (`"Fuel supply not found"`/`"Maintenance not found"`) — diferente da inconsistência 404-vs-500 já registrada para pares análogos no Epic 15/21.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **`search_fuel_supplies` — `fields[]` confirmado como seletor EXATO**, e "Defaults to id only" (documentado) confirmado verdadeiro na prática: sem `fields[]`, cada item da resposta é literalmente só `{id}`. **Diferente de `search_maintenances`**, onde a mesma documentação ("Defaults to id only") é **falsa** — sem `fields[]`, a resposta já vem com o registro quase completo; e mesmo pedindo um subconjunto pequeno via `fields[]`, campos não pedidos (`central_id`, `maintenance_recurrence_id`, `status`, `type`) continuam aparecendo. `fields[]` não é exposto em `search_maintenances` por esse comportamento real inconsistente demais para confiar; é exposto em `search_fuel_supplies`, onde se comporta exatamente como documentado.
+2. **`filters[fuel_type][in][]` (fuel-supply) e `filters[status][in][]`/`filters[vehicle_id][in][]`/`filters[service_id][in][]` (maintenances) — todos exigem o sufixo de array `[]`**, confirmado empiricamente (sem `[]`, o filtro é silenciosamente ignorado, retornando o total não filtrado). Diferente de outros epics, aqui o próprio nome do parâmetro no `openapi.json` já inclui o `[]` explicitamente — a documentação acertou o formato desta vez.
+3. **`amount`/`volume`/`price_per_unit` (fuel-supply) vêm como STRING** na resposta real (ex.: `"408.00"`, `"12.000"`), apesar de documentados como `number` — repassados como vieram.
+4. **Consistência cruzada confirmada em ambos os pares busca/resumo:** `get_fuel_supply_summary` sem filtro bateu com o total de `search_fuel_supplies`; `get_maintenance_services_summary` (`active: 13, inactive: 0`) bateu exatamente com `filters[status]=active`/`inactive` de `search_maintenance_services` para a mesma central.
+5. **`order[supply_date]`/`order[vehicle_id]` (fuel-supply), `order[name]`/`order[value_cents]` (services) e `order[scheduled_date]` (maintenances) confirmados FUNCIONANDO corretamente** nas direções testadas.
+
+**Nota sobre `"x-internal": true`:** também presente em todos os 10 endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/15/19/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

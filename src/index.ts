@@ -35,6 +35,7 @@ import { registerAccountTools } from "./domain/accounts/index.js";
 import { registerEquipmentTools } from "./domain/equipments/index.js";
 import { registerIntegrationTools } from "./domain/integrations/index.js";
 import { registerLocationTools } from "./domain/locations/index.js";
+import { registerMaintenanceTools } from "./domain/maintenance/index.js";
 import { registerNotificationTools } from "./domain/notifications/index.js";
 import { registerOperationTools } from "./domain/operations/index.js";
 import { registerPerimeterTools } from "./domain/perimeters/index.js";
@@ -109,6 +110,7 @@ async function main() {
   registerReportTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerWebEquipmentTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerWebClientTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerMaintenanceTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

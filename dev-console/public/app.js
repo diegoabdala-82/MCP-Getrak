@@ -90,6 +90,17 @@ const TOOL_DOMAIN = {
   search_entity_import_requests: "web_clients",
   get_entity_import_details: "web_clients",
   get_entity_import_items: "web_clients",
+  // Epic 14 — Maintenance, Getrak Web (oauth2Password/GetrakWeb)
+  search_fuel_supplies: "maintenance",
+  get_fuel_supply_summary: "maintenance",
+  get_fuel_supply_details: "maintenance",
+  get_fuel_supply_attachments: "maintenance",
+  search_maintenance_services: "maintenance",
+  get_maintenance_services_summary: "maintenance",
+  search_maintenances: "maintenance",
+  get_maintenances_summary: "maintenance",
+  get_maintenance_details: "maintenance",
+  get_maintenance_attachments: "maintenance",
 };
 
 /**
@@ -114,6 +125,7 @@ const CATEGORY_META = {
   reports: { label: "Reports", scope: "Getrak Web", scopeClass: "getrakweb" },
   web_equipments: { label: "Equipments", scope: "Getrak Web", scopeClass: "getrakweb" },
   web_clients: { label: "Clients", scope: "Getrak Web", scopeClass: "getrakweb" },
+  maintenance: { label: "Maintenance", scope: "Getrak Web", scopeClass: "getrakweb" },
   uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
 };
 

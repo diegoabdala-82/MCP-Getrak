@@ -25,6 +25,7 @@ export const TOOL_DOMAINS = [
   "reports",
   "web_equipments",
   "web_clients",
+  "maintenance",
   "telemetry",
   "webhooks",
 ] as const;
