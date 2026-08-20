@@ -98,7 +98,7 @@ async function main() {
   });
 
   registerVehicleTools(registerDomainTool, { apiCoreClient });
-  registerLocationTools(registerDomainTool, { apiCoreClient });
+  registerLocationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerEquipmentTools(registerDomainTool, { apiCoreClient });
   registerWorkOrderTools(registerDomainTool, { apiCoreClient });
   registerAccountTools(registerDomainTool, { apiCoreClient });
