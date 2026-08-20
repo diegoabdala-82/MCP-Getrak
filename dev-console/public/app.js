@@ -112,6 +112,10 @@ const TOOL_DOMAIN = {
   get_identifiers_summary: "journeys",
   get_available_vehicles_for_journey: "journeys",
   get_identifier_history: "journeys",
+  // Epic 22 — Features, Getrak Web (oauth2Password/GetrakWeb)
+  get_central_features: "features",
+  get_central_feature_flags: "features",
+  get_all_available_features: "features",
 };
 
 /**
@@ -138,6 +142,7 @@ const CATEGORY_META = {
   web_clients: { label: "Clients", scope: "Getrak Web", scopeClass: "getrakweb" },
   maintenance: { label: "Maintenance", scope: "Getrak Web", scopeClass: "getrakweb" },
   journeys: { label: "Journeys", scope: "Getrak Web", scopeClass: "getrakweb" },
+  features: { label: "Features", scope: "Getrak Web", scopeClass: "getrakweb" },
   uncategorized: { label: "Outras / não mapeadas", scope: "desconhecido", scopeClass: "unknown" },
 };
 

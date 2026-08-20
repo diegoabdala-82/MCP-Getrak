@@ -575,6 +575,75 @@ Confirmado que `page`/`per_page` não têm nenhum efeito — sempre retorna a li
 
 ---
 
+## Epic 22 — Features (Getrak Web, Release 3, novo 20/08/2026) (US-103 a US-105)
+
+**Último epic da Release 3 / F12.**
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `get_central_features` | US-103 | `GET /v1.0/centrals/features` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_central_feature_flags` | US-104 | `GET /v1.0/centrals/feature-flags` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_all_available_features` | US-105 | `GET /v1.0/centrals/all-features` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+
+**Status:** ✅ 3 tools implementadas e testadas (mocks/contrato + validação real via chamada direta e via smoke test stdio do próprio servidor MCP), 14 testes automatizados novos (506 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `features` (sem prefixo `web_`), mesma convenção já usada para `operations`/`reports`/`notifications`/`maintenance`/`journeys`. Nenhum dos 3 endpoints aceita qualquer parâmetro de query (confirmado no `openapi.json`: `parameters: null` nos 3, e contra chamada real). A tag `Features` também documenta `PUT /v1.0/centrals/features` (escrita, ativação/desativação de feature) — não implementada, conforme "Out of Scope" já registrado na própria spec de US-103.
+
+### Achado crítico — US-103 e US-104 são conceitos genuinamente distintos (confirmado empiricamente, não só por hipótese)
+
+A "atenção especial" da tarefa levantou a possibilidade de os dois conceitos serem redundantes. Testados os dois contra produção real (mesma central de demonstração) e comparados os conjuntos de chaves:
+
+- **US-103 (`get_central_features`)** devolveu 9 identificadores, **todos com sufixo `_mobile`**: `restricted_vehicle_notification_mobile`, `restricted_vehicle_notification_redirect_mobile`, `show_driver_mobile`, `show_hodometer_mobile`, `show_ignition_alert_mobile`, `show_perimeter_alert_mobile`, `show_speed_mobile`, `show_voltage_mobile`, `show_voltage_off_alert_mobile` — capacidades de exibição do app mobile (features contratadas/habilitadas, como a spec hipotetizou).
+- **US-104 (`get_central_feature_flags`)** devolveu 6 identificadores, **nenhum com sufixo `_mobile`**: `hide_getrak_store`, `ai_monitoring`, `equipment`, `hide_home_carrousel`, `video_monitoring`, `banner_countdown_v2` — flags de rollout/produto/experimento (ex.: monitoramento por IA, monitoramento por vídeo, contagem regressiva de banner).
+
+**Nenhuma sobreposição entre os dois conjuntos.** Confirma a hipótese da própria spec de US-104: são conceitos diferentes, não a mesma informação exposta duas vezes. **Nenhuma tool consolidada** — mantidas como duas tools separadas.
+
+### Achado crítico — `GET /v1.0/centrals/features` não tem envelope `{data: ...}`
+
+Diferente de `feature-flags`/`all-features` (ambos `{data: ...}`), a resposta real de `GET /v1.0/centrals/features` é o PRÓPRIO objeto de features na raiz do JSON (`{"show_driver_mobile": true, ...}`), sem nenhum wrapper. Consistente com o `openapi.json` não documentar absolutamente nenhum schema de resposta para esse endpoint (`properties` vazio) — shape descoberto só empiricamente. Um dos valores (`restricted_vehicle_notification_mobile`) é um objeto `{title, description}`, não um booleano como os demais — repassado como veio, sem assumir um tipo de valor único.
+
+### Achado sobre US-105 — dependência de central
+
+A "atenção especial" da tarefa pediu para confirmar se `GET /v1.0/centrals/all-features` exige isolamento por central (RF03) ou é informação global. Confirmado: **o endpoint não tem nenhum parâmetro de query** (nem central, nem qualquer filtro) — a própria descrição no `openapi.json` ("Returns a list of all possible features for centrals") já sugeria isso, e a ausência total de parâmetros confirma estruturalmente. **Achado adicional, não pedido explicitamente mas descoberto ao comparar as respostas:** os 9 `identifier` do catálogo de US-105 coincidem EXATAMENTE com os 9 identificadores de US-103 (mesmos nomes, mesma central de teste) — ou seja, este catálogo documenta os metadados (tipo de valor, datas de criação/atualização) do conceito de "features vinculadas" (US-103), não de "feature flags" (US-104), apesar do nome genérico do endpoint.
+
+Mesmo o endpoint não filtrando por central, `central` continua **obrigatório no schema Zod da tool** — não como filtro de negócio, mas como gate de autorização do MCP e chave do cache do token delegado (CLAUDE.md Seção 3/6), mesmo padrão já usado em `get_current_user`/US-069 e `get_centrals`/US-034. Testado explicitamente: chamar a tool sem `central` é bloqueado com `VALIDATION_ERROR` antes de qualquer chamada à API Core. **Limitação sinalizada:** não foi possível confirmar empiricamente se o catálogo é idêntico entre centrais diferentes, pois só havia uma central de teste disponível nesta rodada — a conclusão de "catálogo único da plataforma" é baseada em evidência estrutural (ausência de parâmetro de central, descrição documentada), não em comparação direta entre duas centrais reais.
+
+**Nota sobre `"x-internal": true`:** também presente nos 3 endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/14/15/19/20/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
+## Resumo consolidado — Release 3 (F12)
+
+Com o Epic 22, os 10 domínios do F12 (PRD) previstos para a Release 3 estão implementados:
+
+| # | Domínio (F12) | Epic | User Stories | Tools |
+|---|---|---|---|---|
+| 1 | Reports | Epic 13 | US-049, US-050 | 2 |
+| 2 | Maintenance | Epic 14 | US-051 a US-060 | 10 |
+| 3 | Clients | Epic 15 | US-061 a US-066 | 6 |
+| 4 | Users | Epic 16 | US-067 a US-069 | 3 |
+| 5 | Vehicles | Epic 17 | US-070 a US-075 (US-076 fora) | 6 |
+| 6 | Notifications | Epic 18 | US-077, US-078 | 2 |
+| 7 | Operations | Epic 19 | US-079 | 1 |
+| 8 | Journeys | Epic 20 | US-080 a US-089 | 10 |
+| 9 | Equipments | Epic 21 | US-090 a US-102 | 13 |
+| 10 | Features | Epic 22 | US-103 a US-105 | 3 |
+
+**Total Release 3: 56 tools** (dentro do total geral de 85 tools MCP do projeto, incluindo Epics 1 a 10 anteriores à Release 3).
+
+### Itens que ficaram de fora ou pendentes dentro desses 10 domínios
+
+- **US-076 (`get_isoline_shape`, Epic 17/Vehicles):** deliberadamente fora — a própria spec condiciona a implementação a confirmação de caso de uso por Diego (Product Owner), não obtida até o momento.
+- **US-054/US-060 (anexos de abastecimento/manutenção, Epic 14/Maintenance):** avaliadas para possível bundle dentro de `get_fuel_supply_details`/`get_maintenance_details`, conforme pedido explicitamente naquela rodada — **decisão registrada: mantidas como tools SEPARADAS**, não consolidadas (sem mecanismo nativo de composição confirmado por teste negativo, anexos têm ciclo de vida/URLs pré-assinadas próprios, e consistência com o precedente do resto do projeto para pares detalhe+drill-down).
+- **US-103/US-104/US-105 (Epic 22/Features):** avaliadas para possível redundância entre US-103 e US-104 — **decisão registrada: mantidas como tools SEPARADAS**, conjuntos de identificadores confirmados sem nenhuma sobreposição. US-105 mantida como tool independente (catálogo de metadados de US-103, dependência de central resolvida como gate de autorização do MCP, não filtro de negócio).
+- **Operações de escrita** documentadas nas tags correspondentes de todos os 10 domínios (criação/edição/exclusão/ativação de relatórios, manutenções, clientes/subclientes, usuários, veículos, notificações, viagens/motoristas/identificadores, equipamentos, features) — nenhuma implementada em nenhum dos 10 domínios, conforme escopo read-only da V1.
+- **Ordenação em `search_operations`** (`order[date]`, Epic 19/Operations) — parâmetro documentado, confirmado quebrado no backend; não exposto até correção.
+- **Fallback v1.0 de `search_drivers`** (Epic 20/Journeys) — implementado conforme decisão de arquitetura (GAP-020), mas o endpoint de fallback real (`GET /v1.0/journeys/drivers`) está confirmadamente quebrado (HTTP 500 para qualquer chamada) — sem ganho real de resiliência até correção da Getrak.
+- **Sobreposições nominais investigadas e conscientemente não consolidadas** (registradas em cada epic correspondente, não repetidas aqui em detalhe): US-090 (Epic 21) vs. US-020 (Epic 4); US-061 (Epic 15) vs. US-030 (Epic 9); US-070 (Epic 17) vs. US-008 (Epic 2); US-074/075 (Epic 17) vs. US-013 (Epic 3).
+- Fora dos 10 domínios do F12, mas registrados anteriormente como pendentes do projeto como um todo: Epic 8 (US-029, tool composta), US-032 (GAP-018), US-038 (GAP-019), Epic 11 (US-043, bloqueado por Produto/Segurança), Epic 12 (nenhuma User Story gerada), Epic 6/7 (Telemetria/Webhooks, Release 2).
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.

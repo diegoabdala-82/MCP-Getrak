@@ -33,6 +33,7 @@ import { ToolRuntime } from "./foundation/tool-runtime.js";
 import { registerAccessoryTools } from "./domain/accessories/index.js";
 import { registerAccountTools } from "./domain/accounts/index.js";
 import { registerEquipmentTools } from "./domain/equipments/index.js";
+import { registerFeatureTools } from "./domain/features/index.js";
 import { registerIntegrationTools } from "./domain/integrations/index.js";
 import { registerJourneyTools } from "./domain/journeys/index.js";
 import { registerLocationTools } from "./domain/locations/index.js";
@@ -113,6 +114,7 @@ async function main() {
   registerWebClientTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerMaintenanceTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerJourneyTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerFeatureTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
