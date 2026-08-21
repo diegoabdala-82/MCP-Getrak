@@ -119,9 +119,10 @@
  */
 
 import { z } from "zod";
+import type { Environment } from "../../config/environment.js";
 import type { DomainToolRegistration } from "../../server.js";
 import type { ToolDefinition } from "../../foundation/tool-runtime.js";
-import { normalizePagination, type PaginationMeta } from "../../foundation/pagination/pagination.js";
+import { MAX_PAGE_SIZE, normalizePagination, type PaginationMeta } from "../../foundation/pagination/pagination.js";
 import { callGetrakWebEndpoint, type GetrakWebToolDeps } from "../getrak-web-shared.js";
 import { centralSchema, normalizeItem } from "../shared.js";
 
@@ -137,7 +138,8 @@ const INCLUDE_WIRE_VALUE: Record<(typeof INCLUDE_VALUES)[number], string> = {
   driver: "driver",
 };
 
-const dateOnlySchema = z
+/** Exportado para reuso por `analyze_vehicle_behavior` (US-107), que exige o mesmo formato de data. */
+export const dateOnlySchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Expected date in the format YYYY-MM-DD (e.g. 2026-08-20)");
 
@@ -156,7 +158,7 @@ export const getVehicleLastRegistersInputSchema = z.object({
 export type GetVehicleLastRegistersInput = z.infer<typeof getVehicleLastRegistersInputSchema>;
 
 export interface GetVehicleLastRegistersData {
-  registers: Record<string, unknown>[];
+  registers: NormalizedLastRegister[];
   pagination: PaginationMeta;
   vehicle: Record<string, unknown> | null;
 }
@@ -197,15 +199,24 @@ function normalizeTelemetry(rawData: Record<string, unknown>): Record<string, un
   return normalizeItem(telemetry);
 }
 
-function normalizeRegister(raw: Record<string, unknown>): Record<string, unknown> {
+/** Formato de retorno de `normalizeRegister` — exportado para reuso tipado por `analyze_vehicle_behavior` (US-107). */
+export interface NormalizedLastRegister {
+  vehicle_id: number | null;
+  gps_at: string | null;
+  classification: number | null;
+  telemetry: Record<string, unknown>;
+  raw_timestamps: Record<string, unknown>;
+}
+
+function normalizeRegister(raw: Record<string, unknown>): NormalizedLastRegister {
   const nested = raw.data && typeof raw.data === "object" ? (raw.data as Record<string, unknown>) : {};
 
   return {
-    vehicle_id: raw.vehicleId ?? null,
+    vehicle_id: (raw.vehicleId as number | undefined) ?? null,
     // Campo de data canônico escolhido (achado 9 no cabeçalho) — candidato
     // mais razoável até confirmação formal da Engenharia.
-    gps_at: nested.datagps ?? null,
-    classification: raw.classification ?? null,
+    gps_at: (nested.datagps as string | undefined) ?? null,
+    classification: (raw.classification as number | undefined) ?? null,
     telemetry: normalizeTelemetry(nested),
     raw_timestamps: {
       record_date: raw.date ?? null,
@@ -237,6 +248,84 @@ function extractLastRegistersEnvelope(
     },
     vehicle,
   };
+}
+
+/** Máximo de chamadas downstream por tool composta (TD-03, CLAUDE.md Seção 4) — usado só pela agregação de página única (`fetchAllLastRegistersForDay`), nunca pela tool US-106 propriamente (que expõe page/page_size normalmente ao agente). */
+const MAX_DOWNSTREAM_CALLS_PER_COMPOSITE_TOOL = 5;
+
+export interface FetchAllLastRegistersForDayParams {
+  deps: GetrakWebToolDeps;
+  central: string;
+  vehicleId: number;
+  date: string;
+  environment: Environment;
+  userId: string;
+}
+
+export interface FetchAllLastRegistersForDayResult {
+  registers: NormalizedLastRegister[];
+  vehicle: Record<string, unknown> | null;
+  /** `true` quando o dia tem mais registros do que o limite de chamadas downstream (TD-03) permitiu buscar. */
+  partial: boolean;
+  warnings: string[];
+  endpoints: string[];
+}
+
+/**
+ * Reusado por `analyze_vehicle_behavior` (US-107) para obter TODOS os
+ * registros de um veículo em um dia, agregando internamente todas as
+ * páginas — nunca expondo `page`/`page_size`/`include`/`filters` ao agente
+ * (contrato da US-107). Chama a mesma função pura de normalização usada por
+ * `get_vehicle_last_registers` (US-106), mas NÃO invoca o `ToolDefinition`/
+ * `handler` dessa tool diretamente (que não foi desenhado para chamada
+ * reentrante por outra tool — validação de entrada, resolução de central e
+ * auditoria já são responsabilidade exclusiva do `ToolRuntime` da tool
+ * chamadora, US-107). Página fixa em `MAX_PAGE_SIZE` (100, TD-03) para
+ * minimizar o número de chamadas necessárias; interrompe após
+ * `MAX_DOWNSTREAM_CALLS_PER_COMPOSITE_TOOL` chamadas (5, TD-03) mesmo se
+ * ainda houver mais páginas, sinalizando `partial: true` e um warning — não
+ * há relato empírico de um veículo com mais de 500 registros em um único
+ * dia nesta rodada, mas o guardrail existe para não violar o limite de
+ * chamadas downstream/timeout de tool composta (TD-03) em nenhum cenário.
+ */
+export async function fetchAllLastRegistersForDay(
+  params: FetchAllLastRegistersForDayParams,
+): Promise<FetchAllLastRegistersForDayResult> {
+  const registers: NormalizedLastRegister[] = [];
+  let vehicle: Record<string, unknown> | null = null;
+  let page = 1;
+  let hasMore = true;
+  let callsMade = 0;
+
+  while (hasMore && callsMade < MAX_DOWNSTREAM_CALLS_PER_COMPOSITE_TOOL) {
+    const raw = await callGetrakWebEndpoint<unknown>({
+      deps: params.deps,
+      path: `/v1/localization/vehicles/${params.vehicleId}/last-registers`,
+      query: { date: params.date, page, per_page: MAX_PAGE_SIZE },
+      environment: params.environment,
+      central: params.central,
+      userId: params.userId,
+      notFoundCode: "VEHICLE_NOT_FOUND",
+    });
+    callsMade += 1;
+
+    const { items, meta, vehicle: pageVehicle } = extractLastRegistersEnvelope(raw, page, MAX_PAGE_SIZE);
+    registers.push(...items.map(normalizeRegister));
+    if (pageVehicle) {
+      vehicle = normalizeItem(pageVehicle);
+    }
+    hasMore = meta.has_more === true;
+    page += 1;
+  }
+
+  const partial = hasMore;
+  const warnings = partial
+    ? [
+        `Vehicle has more than ${MAX_DOWNSTREAM_CALLS_PER_COMPOSITE_TOOL * MAX_PAGE_SIZE} registers on this date — analysis is based on a partial dataset (TD-03 downstream call limit for composite tools).`,
+      ]
+    : [];
+
+  return { registers, vehicle, partial, warnings, endpoints: [SOURCE_ENDPOINT] };
 }
 
 export function createGetVehicleLastRegistersTool(

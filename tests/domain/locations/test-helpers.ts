@@ -21,6 +21,18 @@ export function createFakeDelegatedApiCoreClient(response: unknown): FakeApiCore
   return { client: { get } as unknown as ApiCoreClient, get };
 }
 
+/** US-107: agregação multi-página (`fetchAllLastRegistersForDay`) exige respostas diferentes por chamada — devolve `responses[n]` na n-ésima chamada, repetindo a última se chamado mais vezes do que o array tem. */
+export function createSequencedDelegatedApiCoreClient(responses: unknown[]): FakeApiCoreClient {
+  let callIndex = 0;
+  const get = vi.fn(async (params: ApiCoreGetParams) => {
+    await params.delegatedTokenProvider?.();
+    const response = responses[Math.min(callIndex, responses.length - 1)];
+    callIndex += 1;
+    return response;
+  });
+  return { client: { get } as unknown as ApiCoreClient, get };
+}
+
 export function createRejectingApiCoreClient(error: unknown): FakeApiCoreClient {
   const get = vi.fn(async (params: ApiCoreGetParams) => {
     await params.delegatedTokenProvider?.();

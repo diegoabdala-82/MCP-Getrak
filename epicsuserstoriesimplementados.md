@@ -50,8 +50,9 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 | `get_offline_treatments` | US-018 | — | `oauth2Password` | ✅ Sim |
 | `get_offline_treatment_history` | US-019 | — | `oauth2Password` | ✅ Sim |
 | `get_vehicle_last_registers` | US-106 (novo 20/08/2026) | `GET /v1/localization/vehicles/{vehicle_id}/last-registers` | `oauth2Password`/`GetrakWeb` (**delegado**) | ✅ Sim (20/08/2026) |
+| `analyze_vehicle_behavior` | US-107 (novo 21/08/2026) | Nenhum — composição sobre US-106 | `oauth2Password`/`GetrakWeb` (**delegado**, herdado de US-106) | Não aplicável (composição pura, sem chamada nova) |
 
-**Status:** ✅ 8 tools implementadas e **testadas contra produção real**. Mergeado em `main`. Três bugs reais de discrepância documentação-vs-comportamento encontrados e corrigidos durante a implementação original (shape de resposta em US-013, parâmetro `fields[]` não documentado em US-018, path incorreto no `openapi.json` em US-019 — ver `CLAUDE.md` Seção 7). US-106 adicionada em 20/08/2026, 11 testes automatizados novos (517 no total).
+**Status:** ✅ 9 tools implementadas. As 8 primeiras testadas contra produção real e mergeadas em `main`. Três bugs reais de discrepância documentação-vs-comportamento encontrados e corrigidos durante a implementação original (shape de resposta em US-013, parâmetro `fields[]` não documentado em US-018, path incorreto no `openapi.json` em US-019 — ver `CLAUDE.md` Seção 7). US-106 adicionada em 20/08/2026, 11 testes automatizados novos. US-107 adicionada em 21/08/2026, 20 testes automatizados novos (537 no total).
 
 ### US-106 — `get_vehicle_last_registers` (nova capacidade, 20/08/2026)
 
@@ -81,6 +82,35 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 - Confirmar a semântica exata das quatro datas brutas (`date`, `timestamp`, `datagps`, `data`) — a escolha de `datagps` como canônico é um candidato razoável, não uma confirmação formal.
 - Confirmar se a nomenclatura de telemetria em português (`sequencia`, `datagps`, `ignicao`, etc.) é definitiva ou se existe uma versão mais recente já no padrão em inglês predominante da API Core.
 - Confirmar o allow-list real de campos filtráveis em `filters` (só `ignicao` confirmado funcionando; `panico`/`velocidade`/`classification` confirmados não funcionando, sem erro).
+
+### US-107 — `analyze_vehicle_behavior` (nova capacidade de composição, 21/08/2026)
+
+**Tool de COMPOSIÇÃO PURA — nenhum endpoint de origem próprio.** Opera inteiramente sobre `get_vehicle_last_registers` (US-106), única fonte de dado; não faz nenhuma chamada adicional à API Core. Reusa uma função pura nova, exportada por `get-vehicle-last-registers.ts` (`fetchAllLastRegistersForDay`), que agrega internamente todas as páginas do dia (limitada a 5 chamadas downstream, TD-03) sem expor `page`/`page_size`/`include`/`filters` ao agente — **não invoca o `ToolDefinition`/handler da US-106 diretamente** (esse handler não foi desenhado para chamada reentrante por outra tool; validação de entrada/central/auditoria continuam sendo responsabilidade exclusiva do `ToolRuntime` da tool chamadora).
+
+**Três conflitos genuínos entre o prompt da tarefa e o código/spec real — sinalizados explicitamente e resolvidos por decisão do usuário nesta rodada, não inferidos silenciosamente (conforme a própria tarefa exigiu):**
+
+1. **Tipo de `vehicle_id`**: o prompt descrevia string; US-106 (dependência obrigatória e exclusiva) usa `z.number().int().positive()`. **Decisão: manter `number`, idêntico à US-106, sem coerção.**
+2. **Campo "estado" de origem para `alerts`**: a spec descreve repasse de um campo `estado` "já presente nos registros de origem" — esse nome literal não existe em nenhum lugar do output de US-106. **Decisão: usar `telemetry.type` (derivado do campo bruto `tipo`) como o campo que cumpre esse papel.**
+3. **Métrica "satélites"**: a spec (Notion, "Notes for Refinement") exige config de anomalia para 5 métricas nomeadas — tensão de bateria, % bateria, tensão de bateria reserva, velocidade, satélites — mas nenhum campo bruto de contagem de satélites aparece em nenhum lugar da telemetria confirmada empiricamente por US-106 (nem traduzido, nem nos campos ambíguos mantidos como vieram: `can_*`, `ibutton`, `rpm`, `volts`, `lat`, `lng`, `qi120`); `last-registers` também está ausente do `openapi.json`, sem fonte alternativa para confirmar. **Decisão: "satellites" permanece em `ANOMALY_METRIC_CONFIG` (mesmo placeholder `TODO: calibrar com dados reais` das outras 4), mas sem nenhum alias de campo bruto mapeado — nunca produz `summary`/`anomalies` até a Engenharia confirmar o nome real do campo.** Quando pedida explicitamente via `metrics: ["satellites"]`, a tool emite um warning explicando a pendência em vez de silenciar.
+
+**Decisão de escopo (não um conflito, uma decisão de implementação dentro do contrato):** a spec descreve o default de métricas como "todas as telemetrias numéricas relevantes retornadas pela US-106", sem critério do que conta como "relevante". Em vez de escanear todos os ~20 campos de telemetria (a maioria flags/códigos/categóricos sem semântica de min/max/avg — `ignition`, `gps_fix`, `panic`, `type`, `module`), `summary`/`anomalies` foram escopados exclusivamente às 5 métricas nomeadas explicitamente na spec. Ampliar esse conjunto é decisão de Produto/Engenharia, não inferida aqui.
+
+**Algoritmo de detecção de anomalias (US-107 AC):**
+- Baseline por **mediana + MAD** (desvio absoluto mediano) — nunca média ou delta bruto entre pontos consecutivos (heurística usada pelo componente de UI de referência, deliberadamente não replicada, conforme a spec autoriza).
+- Critério de anomalia: desvio em relação à mediana deve exceder **tanto** um múltiplo de MAD **quanto** um limiar mínimo absoluto por métrica — ambos configuráveis, isolados em `ANOMALY_METRIC_CONFIG` (versionável, com placeholders `TODO: calibrar com dados reais (Engenharia)` para as 5 métricas, nenhum valor calibrado com análise estatística real nesta rodada).
+- **Caso MAD=0** (métrica quase constante no dia — comum, ex.: velocidade 0 na maior parte de um dia parado): o múltiplo de MAD deixa de ser um critério útil (0 × qualquer coisa = 0); o limiar mínimo absoluto passa a ser o único critério real — comportamento explícito e testado, não um efeito colateral silencioso.
+- Amostra mínima de 3 pontos para uma métrica ser avaliada para anomalias (mediana/MAD sem significado estatístico abaixo disso) — a métrica ainda aparece em `summary` com 1-2 pontos, só não em `anomalies`.
+- Duplicação de campo já confirmada por US-106 tratada via alias, mais de um nome de campo bruto por métrica em ordem de prioridade (`battery_voltage`≡`volts`, `battery_level`←`backup_battery_level`/`bat_percent`).
+
+**`alerts` e `ignition_segments`, conforme a spec exige (repasse/agrupamento, nunca detecção nova):**
+- `alerts`: repasse normalizado de `telemetry.type` por registro (nenhuma heurística/dedução própria).
+- `ignition_segments`: intervalos semânticos `{start, end, state}` por agrupamento de registros consecutivos com o mesmo estado de ignição (`ignicao` tratado defensivamente como 0/1 numérico, boolean ou string "0"/"1") — **sem nenhuma geometria de gráfico** (paths/pixels/coordenadas), conforme a spec exige explicitamente. Registros com ignição desconhecida são ignorados (não fundem segmentos através da lacuna).
+
+**Casos de erro/vazio (US-107 AC), sem lógica nova — herdados de US-106:** veículo sem registros no dia → `summary`/`anomalies`/`alerts`/`ignition_segments` vazios, não erro; veículo inexistente/não autorizado → erro padronizado (`VEHICLE_NOT_FOUND` ou equivalente) propagado sem tentar calcular nada.
+
+**Escopo explicitamente fora desta rodada, conforme a própria spec exige:** análise multi-dia (sem endpoint de origem equivalente para intervalos de data); qualquer elemento de renderização visual (responsabilidade exclusiva da camada de UI); sincronização com a heurística de detecção do componente de UI de referência.
+
+**Testes:** 20 novos (15 unitários — mediana/MAD isolados, `detectMetricAnomalies` com múltiplo de MAD + limiar absoluto + caso MAD=0, `summarizeMetricPoints`, e o handler feliz/vazio/não-encontrado/satélites explícito+default/agregação multi-página/guardrail de 5 chamadas downstream — mais 5 de integração via `ToolRuntime`, incluindo bloqueio de `vehicle_id` não-numérico).
 
 ## Epic 4 — Equipamentos (US-020, US-021)
 
@@ -659,7 +689,7 @@ Com o Epic 22, os 10 domínios do F12 (PRD) previstos para a Release 3 estão im
 | 9 | Equipments | Epic 21 | US-090 a US-102 | 13 |
 | 10 | Features | Epic 22 | US-103 a US-105 | 3 |
 
-**Total Release 3: 56 tools** (dentro do total geral de 85 tools MCP do projeto, incluindo Epics 1 a 10 anteriores à Release 3).
+**Total Release 3: 56 tools** (dentro do total geral de 87 tools MCP do projeto, incluindo Epics 1 a 10 anteriores à Release 3 e as capacidades novas US-106/US-107, Epic 3).
 
 ### Itens que ficaram de fora ou pendentes dentro desses 10 domínios
 

@@ -31,6 +31,8 @@ const TOOL_DOMAIN = {
   get_offline_treatment_history: "locations",
   // US-106, novo 20/08/2026 — única tool deste domínio em oauth2Password/GetrakWeb (token delegado), as demais são PublicoCliente
   get_vehicle_last_registers: "locations",
+  // US-107, novo 21/08/2026 — composição sobre US-106 (nenhum endpoint próprio), mesmo token delegado
+  analyze_vehicle_behavior: "locations",
   // Epic 4 — Equipamentos (oauth2ClientCredentials/Integracao)
   search_equipments: "equipments",
   get_equipment_bench_position: "equipments",
