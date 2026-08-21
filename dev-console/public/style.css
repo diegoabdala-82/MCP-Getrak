@@ -5,6 +5,10 @@
   --accent: #2563eb;
   --danger: #dc2626;
   --success: #16a34a;
+  --scope-getrakweb: #7c3aed;
+  --scope-integration: #0891b2;
+  --scope-public: #16a34a;
+  --scope-unknown: #6b7280;
 }
 
 * { box-sizing: border-box; }
@@ -86,6 +90,86 @@ main {
 #tool-list li.selected {
   background: var(--accent);
   color: white;
+}
+
+/* Visão de categorias (lista de domínios, antes de escolher uma tool) */
+#tool-list.category-view li.category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.6rem;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+.category-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.category-label {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.category-count {
+  font-size: 0.72rem;
+  color: #888;
+}
+
+.scope-badge {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  color: white;
+  white-space: nowrap;
+}
+
+.scope-badge.scope-getrakweb { background: var(--scope-getrakweb); }
+.scope-badge.scope-integration { background: var(--scope-integration); }
+.scope-badge.scope-public { background: var(--scope-public); }
+.scope-badge.scope-unknown { background: var(--scope-unknown); }
+
+/* Breadcrumb ao entrar em uma categoria */
+#breadcrumb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+}
+
+#back-to-categories {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 0.82rem;
+  padding: 0;
+}
+
+#breadcrumb-scope {
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+/* Tag de categoria exibida junto de cada resultado de busca global */
+.tool-category-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  font-size: 0.68rem;
+  color: #888;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 #tool-detail-panel {

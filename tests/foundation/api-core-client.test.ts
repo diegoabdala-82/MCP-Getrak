@@ -76,6 +76,16 @@ describe("ApiCoreClient — normalização de erro de autenticação (bug encont
     });
   });
 
+  it("Epic 20/US-084: trata HTTP 204 (sem corpo) como ausência de dado, sem tentar fazer parse de JSON vazio", async () => {
+    const secretsProvider = { getSecret: vi.fn().mockResolvedValue({ auth_scheme: "oauth2ClientCredentials", client_id: "a", client_secret: "b", token_url: "https://x/token" }) };
+    const oauth2Client = { fetchToken: vi.fn().mockResolvedValue({ access_token: "tok", expires_in: 3600 }) };
+    const authManager = new AuthManager(secretsProvider, new InMemoryTokenCache(), oauth2Client);
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const client = new ApiCoreClient("https://api.example.com", authManager, fetchImpl);
+
+    await expect(client.get(baseParams)).resolves.toBeUndefined();
+  });
+
   it("nunca deixa um erro McpToolError já normalizado ser re-envolvido", async () => {
     const secretsProvider = { getSecret: vi.fn().mockRejectedValue(new McpToolError({ code: "CUSTOM", message: "x", retryable: false })) };
     const authManager = new AuthManager(secretsProvider, new InMemoryTokenCache(), { fetchToken: vi.fn() });

@@ -33,10 +33,20 @@ import { ToolRuntime } from "./foundation/tool-runtime.js";
 import { registerAccessoryTools } from "./domain/accessories/index.js";
 import { registerAccountTools } from "./domain/accounts/index.js";
 import { registerEquipmentTools } from "./domain/equipments/index.js";
+import { registerFeatureTools } from "./domain/features/index.js";
 import { registerIntegrationTools } from "./domain/integrations/index.js";
+import { registerJourneyTools } from "./domain/journeys/index.js";
 import { registerLocationTools } from "./domain/locations/index.js";
+import { registerMaintenanceTools } from "./domain/maintenance/index.js";
+import { registerNotificationTools } from "./domain/notifications/index.js";
+import { registerOperationTools } from "./domain/operations/index.js";
 import { registerPerimeterTools } from "./domain/perimeters/index.js";
+import { registerReportTools } from "./domain/reports/index.js";
 import { registerVehicleTools } from "./domain/vehicles/index.js";
+import { registerWebClientTools } from "./domain/web-clients/index.js";
+import { registerWebEquipmentTools } from "./domain/web-equipments/index.js";
+import { registerWebUserTools } from "./domain/web-users/index.js";
+import { registerWebVehicleTools } from "./domain/web-vehicles/index.js";
 import { registerWorkOrderTools } from "./domain/work-orders/index.js";
 import { createGetrakMcpServer } from "./server.js";
 
@@ -88,13 +98,23 @@ async function main() {
   });
 
   registerVehicleTools(registerDomainTool, { apiCoreClient });
-  registerLocationTools(registerDomainTool, { apiCoreClient });
+  registerLocationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerEquipmentTools(registerDomainTool, { apiCoreClient });
   registerWorkOrderTools(registerDomainTool, { apiCoreClient });
   registerAccountTools(registerDomainTool, { apiCoreClient });
   registerAccessoryTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerIntegrationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
   registerPerimeterTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerWebUserTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerWebVehicleTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerNotificationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerOperationTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerReportTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerWebEquipmentTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerWebClientTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerMaintenanceTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerJourneyTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
+  registerFeatureTools(registerDomainTool, { apiCoreClient, delegatedTokenManager });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

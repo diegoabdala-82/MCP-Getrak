@@ -49,8 +49,68 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 | `get_vehicle_inputs_report` | US-017 | — | `oauth2Password` | ✅ Sim |
 | `get_offline_treatments` | US-018 | — | `oauth2Password` | ✅ Sim |
 | `get_offline_treatment_history` | US-019 | — | `oauth2Password` | ✅ Sim |
+| `get_vehicle_last_registers` | US-106 (novo 20/08/2026) | `GET /v1/localization/vehicles/{vehicle_id}/last-registers` | `oauth2Password`/`GetrakWeb` (**delegado**) | ✅ Sim (20/08/2026) |
+| `analyze_vehicle_behavior` | US-107 (novo 21/08/2026) | Nenhum — composição sobre US-106 | `oauth2Password`/`GetrakWeb` (**delegado**, herdado de US-106) | Não aplicável (composição pura, sem chamada nova) |
 
-**Status:** ✅ 7 tools implementadas e **testadas contra produção real**. Mergeado em `main`. Três bugs reais de discrepância documentação-vs-comportamento encontrados e corrigidos durante a implementação (shape de resposta em US-013, parâmetro `fields[]` não documentado em US-018, path incorreto no `openapi.json` em US-019 — ver `CLAUDE.md` Seção 7).
+**Status:** ✅ 9 tools implementadas. As 8 primeiras testadas contra produção real e mergeadas em `main`. Três bugs reais de discrepância documentação-vs-comportamento encontrados e corrigidos durante a implementação original (shape de resposta em US-013, parâmetro `fields[]` não documentado em US-018, path incorreto no `openapi.json` em US-019 — ver `CLAUDE.md` Seção 7). US-106 adicionada em 20/08/2026, 11 testes automatizados novos. US-107 adicionada em 21/08/2026, 20 testes automatizados novos (537 no total).
+
+### US-106 — `get_vehicle_last_registers` (nova capacidade, 20/08/2026)
+
+**Única tool deste domínio no fluxo de token DELEGADO.** As outras 7 tools do Epic 3 usam a credencial técnica antiga (`oauth2Password`/`PublicoCliente`, CLAUDE.md Seção 6.2 — não migrada). US-106 usa `oauth2Password`/`GetrakWeb` via o token delegado do usuário (US-046/047/048), a mesma infraestrutura usada por todo o resto do projeto desde 15/08/2026. `registerLocationTools` foi estendida para aceitar `delegatedTokenManager` além de `apiCoreClient` — as outras 7 tools continuam recebendo só o que já usavam.
+
+**EXCEÇÃO DOCUMENTADA — endpoint ausente do `openapi.json`.** Confirmado por busca completa no arquivo (`grep`/parse programático): nenhuma ocorrência de "last-registers" em nenhuma forma. Diferente de toda outra tool já implementada no projeto, esta não tem absolutamente nenhum lastro na especificação processada — existência do endpoint, versão (`v1`), parâmetros e schema de resposta foram informados diretamente pelo Product Owner (Diego) e Technical Owner (Odilon), não extraídos do `openapi.json`. Complementarmente, e não apenas repassando essa informação sem checagem, o endpoint foi chamado diretamente contra produção real nesta rodada (central "apresentacao") para confirmar comportamento, parâmetros e shape de resposta empiricamente antes de codificar — mesma disciplina do resto do projeto. **Esta é uma exceção pontual, não um precedente**: não deve ser usada para justificar implementar futuras tools sem qualquer lastro documental sem uma autorização explícita equivalente de Produto/Engenharia.
+
+**Confirmado contra produção real, achados:**
+
+1. **Envelope de paginação com nomes de campo únicos no projeto:** `{data, page, totalItems, itemsPerPage, totalPages, vehicle}` — não é nem o padrão `{page,pages,total}` do resto do domínio Getrak Web, nem o `{pagination:{...}}` do Epic 14. Traduzido para o padrão MCP (`page`/`page_size`/`total_items`/`has_more`) via um extrator local dedicado, sem reaproveitar nenhum helper existente.
+2. **MESMO BUG RECORRENTE de paginação, agora neste endpoint sem lastro na spec:** o nome real do parâmetro de tamanho de página é `per_page` — `itemsPerPage` (o nome do campo de resposta) e `perPage` testados e confirmados SEM EFEITO.
+3. **ACHADO CRÍTICO — `include[]` exige valores em camelCase na wire, divergente da spec da User Story (e do prompt da tarefa), que descreveram os valores em snake_case.** Confirmado via erro 422 real: `"include[0]" must be one of [address, referencePoints, additionalTelemetries, driver]`. O contrato PÚBLICO da tool permanece em snake_case (`reference_points`/`additional_telemetries`), consistente com o resto do projeto (CLAUDE.md Seção 3) — a tradução para os valores reais da wire é feita internamente, nunca exposta ao agente chamador.
+4. **`order[date]=ASC|DESC` confirmado funcionando** (ordem cronológica corretamente invertida); a forma alternativa `order=date:ASC` (sem colchetes) testada e confirmada sem efeito.
+5. **ACHADO CRÍTICO — `filters` só confirmado funcionando de fato para o campo `ignicao`** (`filters[ignicao][eq]=1|0`, valor numérico — resultado exato esperado nos dois casos testados). Testados também `filters[panico][eq]` e `filters[velocidade][gte]/[lte]`: nenhum erro HTTP, mas **sempre retornam 0 resultados, mesmo quando os dados reais deveriam corresponder** (`panico`/`velocidade` = 0 em toda a amostra, e mesmo `[eq]=0`/`[gte]=0`/`[lte]=999` zeraram o resultado) — um comportamento de "filtro que não erra, mas também não filtra corretamente", diferente de um filtro simplesmente ignorado (que devolveria o total não filtrado). `filters[classification][eq]` (campo de nível superior, fora do objeto `data`) também sempre zerou — reforça a hipótese de que `filters` só enxerga campos dentro de `data` (telemetria), mas nem todos eles corretamente. **Por isso a tool expõe só um filtro, `ignition_on` (boolean)** — nenhum outro campo de filtro exposto até confirmação da Engenharia sobre o allow-list real.
+6. **Veículo inexistente/não autorizado → HTTP 404 limpo** (`{"status":404,"error":"Vehicle was not found"}`) — mapeado para `VEHICLE_NOT_FOUND`.
+7. **`date` ausente → HTTP 422 limpo** (`"date" is required"`) — API bem comportada aqui, diferente do padrão recorrente de HTTP 500 genérico em filtro obrigatório ausente visto em outros epics (ex.: Epic 19/US-079, Epic 20/US-089). Mesmo assim, `date` é obrigatório no schema Zod da tool, como em toda tool do projeto.
+8. **Objeto `vehicle` (com `client` aninhado) vem UMA VEZ por resposta**, fora do array de registros — não por registro individual. Contém documento/e-mail/telefone do `client`, sempre incluídos por decisão de produto já registrada (Contexto Seção 11.2.1, Decisão 1) — repassado sem mascaramento/omissão na resposta normalizada, exceção deliberada ao princípio geral de minimização de dados sensíveis (não um esquecimento).
+9. **Confirmadas as quatro datas descritas na tarefa**: `date` (raiz do registro), `data.timestamp`, `data.datagps`, `data.data`. `datagps` e `data` representam o MESMO instante GPS em fusos diferentes (`datagps` local com offset `-03:00`, `data` em UTC/`Z`); `timestamp` difere ligeiramente (momento de recebimento/processamento pelo servidor). **Campo canônico escolhido: `datagps`**, exposto como `gps_at` no nível superior do registro normalizado — candidato mais razoável por representar o instante em que a posição foi de fato capturada pelo equipamento GPS, não quando foi recebida/processada pelo backend. As quatro datas brutas são preservadas integralmente em `raw_timestamps` (`record_date`, `received_at`, `gps_at`, `gps_at_utc`), sem descarte, até confirmação formal da semântica exata pela Engenharia — **não é uma decisão fechada de produto**.
+10. **Nomenclatura de telemetria em português traduzida para inglês** nos campos claramente identificáveis: `sequencia`→`sequence`, `velocidade`→`speed`, `saidas`→`outputs`, `entradas`→`inputs`, `direcao`→`direction`, `gpsfix`→`gps_fix`, `alimentacao`→`power_supply`, `ignicao`→`ignition`, `eventos`→`events`, `panico`→`panic`, `tensao_bateria`→`battery_voltage`, `nivel_bateria_reserva`→`backup_battery_level`, `modulo`→`module`, `horimetro`→`hourmeter`, `temperatura`→`temperature`, `hodometro`→`odometer`, `tipo`→`type`, `driverName`→`driver_name` (quando `include=driver`). Campos ambíguos ou já em inglês/abreviações internacionais (`can_*`, `ibutton`, `rpm`, `volts`, `lat`, `lng`, `qi120`) foram deliberadamente MANTIDOS como vieram — não inventada tradução para semântica não confirmada.
+11. **Campos majoritariamente nulos** (`can_*` na telemetria; `vin`/`nickname`/`model` no objeto `vehicle`) confirmados como esperados/dependentes do hardware do rastreador — tratados como ausência normal, não erro de normalização.
+
+**Confirmado: `get_vehicle_location_history` (US-014) e `get_vehicle_last_registers` (US-106) permanecem tools DISTINTAS**, conforme instruído — não consolidadas. Endpoints, parâmetros e propósito diferentes: US-014 usa `GET /v0.1/recebidos/{id}/{dataIni}/{dataFim}` (intervalo de datas, sem paginação nativa, credencial técnica antiga); US-106 usa uma data única + paginação real + `include`/`order`/`filters` ricos, via token delegado. Nenhuma sobreposição de dados observada nos testes desta rodada — datasets de origem diferentes (endpoints diferentes na API Core).
+
+**Pendências de Engenharia registradas (não bloqueantes para este PR, a resolver antes de produção):**
+- Reportar formalmente à Getrak a ausência deste endpoint no `openapi.json`.
+- Solicitar códigos de erro adicionais além do 404 documentado (400/401/403/429/5xx) — não confirmados nesta rodada.
+- Confirmar a semântica exata das quatro datas brutas (`date`, `timestamp`, `datagps`, `data`) — a escolha de `datagps` como canônico é um candidato razoável, não uma confirmação formal.
+- Confirmar se a nomenclatura de telemetria em português (`sequencia`, `datagps`, `ignicao`, etc.) é definitiva ou se existe uma versão mais recente já no padrão em inglês predominante da API Core.
+- Confirmar o allow-list real de campos filtráveis em `filters` (só `ignicao` confirmado funcionando; `panico`/`velocidade`/`classification` confirmados não funcionando, sem erro).
+
+### US-107 — `analyze_vehicle_behavior` (nova capacidade de composição, 21/08/2026)
+
+**Tool de COMPOSIÇÃO PURA — nenhum endpoint de origem próprio.** Opera inteiramente sobre `get_vehicle_last_registers` (US-106), única fonte de dado; não faz nenhuma chamada adicional à API Core. Reusa uma função pura nova, exportada por `get-vehicle-last-registers.ts` (`fetchAllLastRegistersForDay`), que agrega internamente todas as páginas do dia (limitada a 5 chamadas downstream, TD-03) sem expor `page`/`page_size`/`include`/`filters` ao agente — **não invoca o `ToolDefinition`/handler da US-106 diretamente** (esse handler não foi desenhado para chamada reentrante por outra tool; validação de entrada/central/auditoria continuam sendo responsabilidade exclusiva do `ToolRuntime` da tool chamadora).
+
+**Três conflitos genuínos entre o prompt da tarefa e o código/spec real — sinalizados explicitamente e resolvidos por decisão do usuário nesta rodada, não inferidos silenciosamente (conforme a própria tarefa exigiu):**
+
+1. **Tipo de `vehicle_id`**: o prompt descrevia string; US-106 (dependência obrigatória e exclusiva) usa `z.number().int().positive()`. **Decisão: manter `number`, idêntico à US-106, sem coerção.**
+2. **Campo "estado" de origem para `alerts`**: a spec descreve repasse de um campo `estado` "já presente nos registros de origem" — esse nome literal não existe em nenhum lugar do output de US-106. **Decisão: usar `telemetry.type` (derivado do campo bruto `tipo`) como o campo que cumpre esse papel.**
+3. **Métrica "satélites"**: a spec (Notion, "Notes for Refinement") exige config de anomalia para 5 métricas nomeadas — tensão de bateria, % bateria, tensão de bateria reserva, velocidade, satélites — mas nenhum campo bruto de contagem de satélites aparece em nenhum lugar da telemetria confirmada empiricamente por US-106 (nem traduzido, nem nos campos ambíguos mantidos como vieram: `can_*`, `ibutton`, `rpm`, `volts`, `lat`, `lng`, `qi120`); `last-registers` também está ausente do `openapi.json`, sem fonte alternativa para confirmar. **Decisão: "satellites" permanece em `ANOMALY_METRIC_CONFIG` (mesmo placeholder `TODO: calibrar com dados reais` das outras 4), mas sem nenhum alias de campo bruto mapeado — nunca produz `summary`/`anomalies` até a Engenharia confirmar o nome real do campo.** Quando pedida explicitamente via `metrics: ["satellites"]`, a tool emite um warning explicando a pendência em vez de silenciar.
+
+**Decisão de escopo (não um conflito, uma decisão de implementação dentro do contrato):** a spec descreve o default de métricas como "todas as telemetrias numéricas relevantes retornadas pela US-106", sem critério do que conta como "relevante". Em vez de escanear todos os ~20 campos de telemetria (a maioria flags/códigos/categóricos sem semântica de min/max/avg — `ignition`, `gps_fix`, `panic`, `type`, `module`), `summary`/`anomalies` foram escopados exclusivamente às 5 métricas nomeadas explicitamente na spec. Ampliar esse conjunto é decisão de Produto/Engenharia, não inferida aqui.
+
+**Algoritmo de detecção de anomalias (US-107 AC):**
+- Baseline por **mediana + MAD** (desvio absoluto mediano) — nunca média ou delta bruto entre pontos consecutivos (heurística usada pelo componente de UI de referência, deliberadamente não replicada, conforme a spec autoriza).
+- Critério de anomalia: desvio em relação à mediana deve exceder **tanto** um múltiplo de MAD **quanto** um limiar mínimo absoluto por métrica — ambos configuráveis, isolados em `ANOMALY_METRIC_CONFIG` (versionável, com placeholders `TODO: calibrar com dados reais (Engenharia)` para as 5 métricas, nenhum valor calibrado com análise estatística real nesta rodada).
+- **Caso MAD=0** (métrica quase constante no dia — comum, ex.: velocidade 0 na maior parte de um dia parado): o múltiplo de MAD deixa de ser um critério útil (0 × qualquer coisa = 0); o limiar mínimo absoluto passa a ser o único critério real — comportamento explícito e testado, não um efeito colateral silencioso.
+- Amostra mínima de 3 pontos para uma métrica ser avaliada para anomalias (mediana/MAD sem significado estatístico abaixo disso) — a métrica ainda aparece em `summary` com 1-2 pontos, só não em `anomalies`.
+- Duplicação de campo já confirmada por US-106 tratada via alias, mais de um nome de campo bruto por métrica em ordem de prioridade (`battery_voltage`≡`volts`, `battery_level`←`backup_battery_level`/`bat_percent`).
+
+**`alerts` e `ignition_segments`, conforme a spec exige (repasse/agrupamento, nunca detecção nova):**
+- `alerts`: repasse normalizado de `telemetry.type` por registro (nenhuma heurística/dedução própria).
+- `ignition_segments`: intervalos semânticos `{start, end, state}` por agrupamento de registros consecutivos com o mesmo estado de ignição (`ignicao` tratado defensivamente como 0/1 numérico, boolean ou string "0"/"1") — **sem nenhuma geometria de gráfico** (paths/pixels/coordenadas), conforme a spec exige explicitamente. Registros com ignição desconhecida são ignorados (não fundem segmentos através da lacuna).
+
+**Casos de erro/vazio (US-107 AC), sem lógica nova — herdados de US-106:** veículo sem registros no dia → `summary`/`anomalies`/`alerts`/`ignition_segments` vazios, não erro; veículo inexistente/não autorizado → erro padronizado (`VEHICLE_NOT_FOUND` ou equivalente) propagado sem tentar calcular nada.
+
+**Escopo explicitamente fora desta rodada, conforme a própria spec exige:** análise multi-dia (sem endpoint de origem equivalente para intervalos de data); qualquer elemento de renderização visual (responsabilidade exclusiva da camada de UI); sincronização com a heurística de detecção do componente de UI de referência.
+
+**Testes:** 20 novos (15 unitários — mediana/MAD isolados, `detectMetricAnomalies` com múltiplo de MAD + limiar absoluto + caso MAD=0, `summarizeMetricPoints`, e o handler feliz/vazio/não-encontrado/satélites explícito+default/agregação multi-página/guardrail de 5 chamadas downstream — mais 5 de integração via `ToolRuntime`, incluindo bloqueio de `vehicle_id` não-numérico).
 
 ## Epic 4 — Equipamentos (US-020, US-021)
 
@@ -138,13 +198,522 @@ Registro do que já foi codificado e testado no repositório. Fonte de verdade s
 
 ---
 
+## Epic 16 — Users (Getrak Web, Release 3, novo 16/08/2026) (US-067, US-068, US-069)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `get_user_details` | US-067 | `GET /v1.0/users/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `search_web_users` | US-068 | `GET /v1.1/users` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_current_user` | US-069 | `GET /oauth/usuario` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+
+**Status:** ✅ 3 tools implementadas e testadas (mocks/contrato + validação real), 25 testes automatizados novos (244 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação foi criada.
+
+**Domínio no catálogo MCP:** novo domínio `web_users` — deliberadamente distinto de `accounts` (Epic 9, `UsersIntegracao`/`oauth2ClientCredentials`) para não confundir com US-032 (usuários via Integracao, bloqueada por GAP-018) nem com `get_user_profiles` (perfis, não usuários).
+
+**Validado contra produção real em 17/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para validar o Epic 10. Chamadas diretas confirmaram os 3 endpoints (`GET /oauth/usuario`, `GET /v1.1/users`, `GET /v1.0/users/{id}`) antes da implementação (para evitar propagar suposições do `openapi.json` já sabidamente pouco confiável — CLAUDE.md Seção 7).
+
+**Divergências reais encontradas e corrigidas/documentadas (não decididas silenciosamente):**
+1. **`GET /v1.0/users/{id}` — shape de resposta totalmente diferente do documentado.** O `openapi.json` documenta `{client: {...}, client_id, fullName, id, site}`; a resposta real é `{id, full_name, client, subclient, central}` (chave `full_name`, não `fullName`; inclui `subclient`). O parâmetro `fields[]` usa os identificadores camelCase documentados (`fullName`, `site`, `clientId`) como seletor, mas as chaves de saída correspondentes vêm em snake_case (`site`, `client_id`); enviar o próprio nome de saída (`full_name`) no `fields[]` derruba o endpoint com HTTP 500. Por isso `fields[]` não é exposto como parâmetro da tool — ela sempre envia o seletor fixo `id,fullName,site,clientId`, confirmado seguro.
+2. **`GET /v1.1/users` — mesmo bug de paginação do Epic 10 (`perPage` vs. `per_page`).** Confirmado empiricamente ANTES de escrever o código (não repetido por engano): `perPage` é silenciosamente ignorado (a API aplica seu próprio padrão de 25 itens); `per_page` é o nome real. Implementado corretamente desde o início.
+3. **`GET /v1.1/users` — paginação real confirmada** como o mesmo envelope `{data, page, pages, total}` do Epic 10; filtro sem correspondência retorna lista vazia normalizada (`{data: [], total: 0, pages: 0, page: 1}`), nunca erro.
+4. **`GET /oauth/usuario` — resposta real tem mais campos que o documentado.** Documentado: `{id, login, nome, sistema, timezone, permissao, email}`. Real: acrescenta `centralId`, `perfil` (inteiro), `ativo` (Y/N), `senhatemp` (Y/N), `tipo` (inteiro), `uid` (string hexadecimal longa) e `acessoWs` (Y/N).
+
+**Achado central da US-069 — gap de papel do usuário (Epic 10, US-040/US-042):** investigado explicitamente, conforme instruído.
+- `permissao` (documentado) é um array de flags de permissão granulares por funcionalidade (`#/components/schemas/permission` — ex.: `6`=Fence, `2`=Reference point, `28`=Administrative panel), **não** uma classificação de papel do usuário — não resolve o gap.
+- `tipo` (inteiro) e `perfil` (inteiro) são campos reais, não documentados no `openapi.json`, e são candidatos fortes: `GET /v1.1/users` (US-068) documenta um filtro `type` com exatamente a taxonomia do gap (`admin|operator|client|subclient|atende`), o que sugere que `tipo` seja essa mesma classificação em forma numérica; `perfil` pode corresponder a `profile_id` (mesmo endpoint, ou ao domínio `get_user_profiles` do Epic 9).
+- **Nenhuma fonte disponível (openapi.json, PRD, Technical Brief, nenhuma spec) confirma o mapeamento inteiro→papel.** Por instrução explícita da tarefa, esse mapeamento **não foi inventado**.
+- **Conclusão: o gap do Epic 10 permanece aberto** — mas com uma pista concreta e nova (campos exatos + endpoint) que não existia antes desta rodada. `tipo`/`perfil` são expostos como estão em `get_current_user`, sem uso em nenhuma lógica de filtragem do MCP. Recomenda-se à Engenharia confirmar o mapeamento de `tipo` antes de qualquer tentativa futura de fechar o gap com base nele. **Nenhuma mudança foi feita em `search_geofences`/`search_reference_points`.**
+
+**Minimização em `get_current_user`:** o campo `uid` (identificador longo, formato de token/sessão) é omitido da resposta normalizada — divergente do precedente geral de "repassar como recebido" (cnpj/email no Epic 9, `credentials.token` no Epic 10), decisão pontual por não ter valor de negócio conhecido e ter formato de credencial opaca (CLAUDE.md Seção 8 lista tokens/identificadores como sensíveis). Demais campos sensíveis (email, telefone, documento em `client`) seguem o mesmo tratamento já estabelecido: mascarados apenas na auditoria, nunca na resposta ao consumidor já autorizado.
+
+**`central` como parâmetro de `get_current_user`:** a spec descreve a tool como "sem parâmetros de entrada", mas isso se refere a parâmetros de negócio (nenhum id, nenhum filtro) — `central` continua exigido como gate de autorização e chave de resolução do token delegado (CLAUDE.md Seção 3/US-048), mesmo padrão já usado em `get_accessories_summary`/`get_centrals`. Reconciliação sinalizada no código-fonte, não uma suposição silenciosa.
+
+---
+
+## Epic 17 — Vehicles (Getrak Web, Release 3, novo 16/08/2026) (US-070 a US-075; US-076 fora desta rodada)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_web_vehicles` | US-070 | `GET /v1.0/vehicles` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_by_equipment` | US-071 | `GET /v1.0/vehicles/equipments/{serial_number}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_equipment_history` | US-072 | `GET /v1.0/vehicles/{id}/equipments-history` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_by_plate` | US-073 | `GET /v1.0/vehicles/lookup/{plate}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `get_vehicle_status` | US-074 | `GET /v1.0/localization/vehicles-status/{vehicle_id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+| `search_vehicles_status` | US-075 | `GET /v1.0/localization/vehicles-status` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (17/08/2026) |
+
+**Status:** ✅ 6 de 7 tools implementadas e testadas (mocks/contrato + validação real), 43 testes automatizados novos (287 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**US-076 (`get_isoline_shape`, `GET /v1.0/localization/isoline`) — deliberadamente FORA desta rodada.** A própria spec da User Story condiciona a implementação a uma confirmação de caso de uso real por Diego (Product Owner) — "Baixa prioridade — caso de uso ainda não identificado" — que não foi obtida durante esta implementação. Seguindo a instrução explícita da tarefa ("só implemente se... confirmar que não há decisão de Produto pendente"), a tool **não foi codificada**. Nenhum código, teste ou registro de catálogo para `get_isoline_shape` existe neste PR. Confirmado por teste real via `tools/list` que ela não aparece entre as 38 tools descobertas.
+
+**Domínio no catálogo MCP:** novo domínio `web_vehicles` — deliberadamente distinto de `vehicles` (Epic 2, `VehiclesIntegracao`/`oauth2ClientCredentials`), mesma convenção do `web_users` (Epic 16) vs. `accounts` (Epic 9).
+
+**Validado contra produção real em 17/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16. Todos os 6 endpoints chamados diretamente antes de codificar.
+
+**Achados reais documentados (não decididos silenciosamente):**
+1. **`GET /v1.0/vehicles` e `GET /v1.0/localization/vehicles-status` reproduzem o mesmo bug de paginação `perPage`/`per_page`** do Epic 10/16 — confirmado empiricamente antes de codificar (25 itens com `perPage`, contagem exata pedida com `per_page`). Implementado corretamente desde o início nas duas tools.
+2. **`GET /v1.0/vehicles/{id}/equipments-history` retorna `{data, total, pages}` — sem a chave `page`**, diferente do envelope padrão `{data, page, pages, total}` do resto do projeto. Inofensivo para o código (o `page` usado na resposta normalizada vem do input, não da resposta), mas divergência real registrada. Esse mesmo endpoint documenta o filtro de busca como `filter[search][inc]` (singular "filter", não "filters" como na maioria dos outros) — implementado fielmente ao nome documentado; o teste real feito não conseguiu discriminar se isso faz diferença de fato (dataset de teste tinha um único serial no histórico do veículo usado).
+3. **`GET /v1.0/localization/vehicles-status` usa `order[gps_time]`/`order[server_time]` com enum `asc`/`desc` MINÚSCULO** — diferente da convenção `ASC`/`DESC` maiúscula usada em quase todo o resto do projeto (incluindo `search_web_vehicles`, no mesmo Epic). Implementado respeitando o valor real documentado, não a convenção do restante do projeto.
+4. **`GET /v1.0/vehicles/lookup/{plate}` (US-073) — achado crítico, não é uma consulta ao cadastro da central.** Ver seção dedicada abaixo.
+
+**ACHADO CRÍTICO — `get_vehicle_by_plate` (US-073) não filtra por central:** confirmado empiricamente que este endpoint funciona como uma consulta de placa genérica (estilo FIPE/DETRAN), não como "esta placa pertence a um veículo rastreado nesta central":
+- Uma placa completamente inventada (`ZZZ0000`, sem nenhuma correspondência em nenhum cadastro Getrak) retornou HTTP 200 com um registro completo e plausível (Ford Ka, chassi, preço FIPE) — não HTTP 404.
+- Uma placa real da frota desta central (`FMB-6843`, com marca/VIN propositalmente inválidos no cadastro Getrak visto em `search_web_vehicles`) retornou, neste endpoint, marca/modelo/chassi **completamente diferentes e plausíveis** (Volkswagen SpaceFox, chassi de fábrica real) — os dados não vêm do cadastro desta central.
+- `central_id` aparece igual em ambos os casos (o do usuário autenticado) — não é um filtro real, parece só ser carimbado no retorno.
+- HTTP 400 só ocorre para formato de placa claramente inválido (`"Invalid plate format. Expected format: ABC1234 or ABC1D23"`); nenhuma placa sintaticamente válida testada (real ou inventada) produziu 404.
+- **A AC da spec ("placa sem veículo correspondente → VEHICLE_NOT_FOUND") não corresponde ao comportamento real observado.** Implementado fielmente ao endpoint real (sem inventar uma checagem adicional de pertencimento à central que a API não faz). **Sinalizado para decisão de Produto/Engenharia** — pode exigir reescopar ou renomear esta tool, ou tratá-la como uma capacidade de enriquecimento de dados nacional em vez de consulta de frota.
+
+**Sobreposição de dados investigada conforme instruído:**
+- **US-070 (`search_web_vehicles`) vs. US-008 (`search_vehicles`, Epic 2):** sobreposição conceitual real — ambas são consultas de CADASTRO de veículo (nenhuma inclui localização em tempo real). Não foi possível comparar o shape ponto a ponto (Epic 2 usa `oauth2ClientCredentials`, sem credencial disponível neste ambiente, mesma limitação já registrada para todo o Epic 2/4/9). **Não consolidado nem descartado** — decisão de Produto/Engenharia.
+- **US-074 (`get_vehicle_status`) vs. US-013 (`get_vehicle_current_location`, Epic 3):** sobreposição real de CAMPOS confirmada — `get_vehicle_status` retorna `latitude`/`longitude`/`speed`/`ignition`/`entrys`/`gps_time` (mesmos conceitos documentados para US-013: "latitude, longitude, velocidade, status de ignição/entradas, data/hora do último pacote"), além de dados que US-013 não tem (odômetro/horímetro, tensão de bateria, status de bloqueio, GPS fix/satélites, snapshot de cadastro). Não foi possível comparar o valor exato no mesmo veículo (US-013 usa credencial técnica antiga, indisponível neste ambiente) — a sobreposição identificada é de campos/conceito. **Não consolidado nem descartado** — decisão de Produto/Engenharia. `search_vehicles_status` (US-075) é "mesma família de dados" (spec) que `get_vehicle_status` — mesma sobreposição se aplica.
+
+---
+
+## Epic 18 — Notifications (Getrak Web, Release 3, novo 19/08/2026) (US-077, US-078)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_messages` | US-077 | `GET /v1.0/notifications/messaging/messages` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_messages_analytics` | US-078 | `GET /v1.0/notifications/messaging/messages/analytics` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 2 tools implementadas e testadas (mocks/contrato + validação real), 14 testes automatizados novos (301 no total). Ambas reaproveitam o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação foi criada.
+
+**Domínio no catálogo MCP:** novo domínio `notifications`.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16/17. Os 2 endpoints chamados diretamente antes de codificar, confirmando não serem `deprecated` no `openapi.json`.
+
+**Achados reais documentados (não decididos silenciosamente):**
+1. **`GET /v1.0/notifications/messaging/messages` reproduz o mesmo bug de paginação `perPage`/`per_page`** já visto em Epic 10/16/17 — confirmado empiricamente antes de codificar (25 itens com `perPage`, contagem exata pedida com `per_page`, mesmo `total`). Implementado corretamente com `per_page` desde o início.
+2. **`is_automatic` vem como BOOLEANO real** (`true`/`false`) — o `openapi.json` documenta esse campo como inteiro `0`/`1`. Repassado como veio, não convertido para bater com o schema documentado (CLAUDE.md Seção 7: a resposta real é a fonte de verdade).
+3. **`reading_rate` (US-078) vem como NÚMERO DECIMAL real** (ex.: `21.9`) — o `openapi.json` documenta esse campo como inteiro. Repassado como veio, sem arredondar/truncar.
+4. **`GET /v1.0/notifications/messaging/messages/analytics` não exige nenhum parâmetro** — confirmado funcionando sem `start_at`/`end_at` (agregação sobre todo o histórico: `{total_sent: 2253, total_viewed: 494, reading_rate: 21.9}`) e com o par de datas (`{total_sent: 1023, total_viewed: 215, reading_rate: 21}`). Não há paginação neste endpoint — resposta é um único objeto agregado.
+5. **Artefato de documentação no `openapi.json`:** o bloco `responses.200` de `GET /v1.0/notifications/messaging/messages` está malformado — mistura um `$ref` para `#/components/responses/error-400` com um `content` de sucesso no mesmo bloco. Tratado como erro de documentação (ignorado); a resposta real de sucesso segue o envelope `{data, page, pages, total}` padrão do restante do projeto.
+
+**TENSÃO DE POLÍTICA SINALIZADA — mascaramento de conteúdo de mensagem (`body`/`title`), não resolvida silenciosamente em nenhuma direção:**
+- A tarefa desta rodada instruiu explicitamente: "aplique mascaramento na resposta normalizada e no log de auditoria, seguindo o mesmo padrão já usado em outras tools."
+- Essas duas metades da instrução se contradizem entre si: o padrão real já em uso em TODO o resto do projeto (Epic 9, Epic 10, Epic 16, Epic 17 — `search_clients`, `get_current_user`, etc.) é mascarar campos sensíveis **apenas no log de auditoria** (via `deepMask`, automático em `audit-logger.ts`), **nunca na resposta ao consumidor** já autorizado para a central — precisamente porque `result.data` nunca é incluído no registro de auditoria em nenhum domínio (ver `foundation/tool-runtime.ts`). Mascarar a resposta normalizada teria zero efeito sobre o log de auditoria (que já não contém `data`) e, ao mesmo tempo, seria a primeira exceção do projeto a mascarar a RESPOSTA entregue ao consumidor.
+- Confirmado empiricamente nesta rodada que `body`/`title` reais podem conter dado pessoal e financeiro concreto (nome de cliente, situação de cobrança — ex.: "Olá Bernardo, Não conseguimos identificar o pagamento da sua cobrança..."), mais sensível em espírito que os campos estruturados (cnpj/email/telefone) já tratados apenas por auditoria em outros domínios.
+- **Decisão tomada:** manter o padrão transversal existente (pass-through na resposta normalizada, mascarado só no log de auditoria — que, na prática, não mascara texto livre porque `deepMask` mascara por NOME de campo, não por padrão de conteúdo, e nenhum outro lugar do projeto tem mascaramento de texto livre). Não foi inventada uma exceção pontual de mascaramento de conteúdo só para este domínio, o que seria uma mudança de arquitetura de segurança não sinalizada em nenhuma fonte (CLAUDE.md, PRD, Technical Brief) além desta única tarefa.
+- **Sinalizado explicitamente para decisão de Produto/Segurança:** se a política real para conteúdo de mensagem precisar ser mais restritiva que para os demais domínios (ex.: mascarar nomes próprios/valores monetários dentro de `body` antes de retornar ao consumidor), isso exige (a) uma decisão de Produto sobre o que exatamente mascarar em texto livre, e (b) um mecanismo novo de mascaramento por CONTEÚDO (não por nome de campo) que hoje não existe em nenhum lugar do projeto — não algo a inventar dentro desta implementação.
+
+**Fora de escopo confirmado:** nenhuma tool de envio/agendamento/cancelamento de notificação foi criada — esses endpoints existem na mesma tag `Notifications` do `openapi.json`, mas são operações de escrita, fora da V1 read-only (CLAUDE.md Seção 9).
+
+---
+
+## Epic 19 — Operations (Getrak Web, Release 3, novo 19/08/2026) (US-079)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_operations` | US-079 | `GET /v1.0/operations` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 1 tool implementada e testada (mocks/contrato + validação real), 10 testes automatizados novos (311 no total). Reaproveita o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação.
+
+**Domínio no catálogo MCP:** novo domínio `operations`.
+
+**Confirmado que a tag `Operations` do `openapi.json` documenta SÓ este endpoint** — nenhum outro path usa essa tag no `openapi.json` real deste projeto. A preocupação da tarefa (não replicar acidentalmente uma operação de escrita da mesma tag) não se aplica: não há nenhuma outra tool candidata a confundir.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16/17/18. Chamado diretamente antes de codificar, com dezenas de combinações de filtros, para responder exatamente à pergunta da tarefa: quais parâmetros são de fato obrigatórios.
+
+**FILTROS OBRIGATÓRIOS — confirmados por DUAS fontes independentes, conforme instruído:**
+1. **`openapi.json`:** `filters[operation_type][in]`, `filters[entity_id]` e `filters[date]` estão marcados `required: true` no bloco de parâmetros do endpoint (`page`, `perPage`, `fields[]` e `order[date]` são opcionais).
+2. **Empiricamente:** omitir qualquer um dos 3 filtros obrigatórios (isolado ou em combinação, incluindo nenhum filtro) NÃO produz um HTTP 400 limpo — produz **HTTP 500 genérico `{"error":"Internal error"}`**, sem indicar qual filtro faltou. Confirmado com múltiplas combinações (nenhum filtro; só `operation_type`; `operation_type`+`entity_id` sem `date`).
+
+**Consequência prática, exatamente o motivo da instrução da tarefa:** sem validação client-side, o consumidor receberia da API Core um `UPSTREAM_ERROR` genérico e sem contexto — em vez disso, os 3 filtros são campos **obrigatórios no schema Zod** (`operation_types: z.array(z.string()).min(1)`, `entity_id: z.string().min(1)`, `date` com regex `YYYY-MM-DD`). Como `ToolRuntime.execute()` já roda `inputSchema.parse()` antes de chamar `handler` (e portanto antes de qualquer chamada à API Core), a ausência de um filtro obrigatório vira `VALIDATION_ERROR` sem nenhum round-trip de rede — nenhuma lógica de validação extra foi necessária além de declarar os campos como obrigatórios no schema já existente do pipeline.
+
+**Achados reais adicionais, encontrados isolando cada fator antes de assumir o formato do `openapi.json` (não decididos silenciosamente):**
+1. **Formato real de wire do filtro de tipos exige o sufixo de array `[]`.** `filters[operation_type][in]=device` (sem `[]`) retorna o MESMO HTTP 500 genérico acima, mesmo com os 3 filtros logicamente presentes — só `filters[operation_type][in][]=device` (repetido por valor, para múltiplos tipos) funciona. Implementado com a chave de query `"filters[operation_type][in][]"` mapeada a um array — o serializador de query do `ApiCoreClient` já repete a chave por item de array, confirmado funcionando com múltiplos valores reais (`device` + `equipment_discarded` na mesma chamada).
+2. **`order[date]` (documentado, opcional) está QUEBRADO no backend — confirmado, não hipotético.** Todo valor testado produziu HTTP 500:
+   - `order[date]=ASC` e `order[date]=DESC` → `{"status":500,"error":"Unknown column 'distinctAlias.operation_data' in 'field list'"}` (erro de SQL vazando bruto).
+   - `order[date]=asc` (minúsculo) → `{"status":500,"error":"SelectQueryBuilder.addOrderBy \"order\" can accept only \"ASC\" and \"DESC\" values."}`.
+   - **Decisão:** `order[date]` não é exposto como parâmetro de entrada da tool — repassá-lo sempre quebraria a chamada, e CLAUDE.md Seção 3 proíbe repassar erro bruto da API Core; a única forma de cumprir isso aqui é não oferecer o parâmetro. Sinalizado para Engenharia/Produto: se ordenação for necessária no futuro, precisa de correção no backend antes de ser exposta pelo MCP.
+3. **Envelope de sucesso confirmado como o padrão `{data, page, pages, total}`** do resto do domínio Getrak Web — `extractPagePerPageEnvelope` aplicado sem alteração. Filtro sem correspondência retorna lista vazia normalizada (`{data: [], total: 0, pages: 0, page: 1}`), nunca erro — confirmado com dezenas de combinações reais de tipo/entidade/data na central de demonstração (nenhuma produziu resultado não vazio nesta rodada).
+4. **Paginação (`perPage`/`per_page`) NÃO pôde ser reconfirmada com resultado não vazio nesta rodada** — diferente de Epic 10/16/17/18, onde a distinção foi observada com dados reais. Nenhuma combinação de tipo/entidade/data tentada retornou nenhum registro nesta central de demonstração; `per_page`/`page` foram aceitos sem erro (HTTP 200, envelope vazio), mas não foi possível observar truncamento de página real. Implementado com `per_page` por forte precedente já confirmado repetidamente em todo o resto do domínio Getrak Web — sinalizado aqui como aplicação preventiva por precedente, não como confirmação nova e independente.
+5. **`fields[]` (documentado, opcional) não é exposto como parâmetro da tool** — não testado nesta rodada (fora do escopo obrigatório da tarefa); mais de um endpoint Getrak Web já mostrou HTTP 500 para seletores de campo mal formados (Epic 9/`search_accessories`, Epic 16/`get_user_details`). Reduzida a superfície de risco em vez de adivinhar contra produção.
+
+**Nomenclatura:** o filtro de entrada documentado é `operation_type` (singular, com modificador `[in]` para múltiplos valores); exposto na tool como `operation_types` (plural) para refletir que ela sempre aceita uma lista. O campo de saída correspondente no item de resposta é `type`, não `operation_type(s)` — repassado como veio, sem renomear a resposta upstream.
+
+**Nota sobre `"x-internal": true`:** o `openapi.json` marca este endpoint com essa flag (não vista em nenhum outro endpoint já consumido pelo projeto até agora). Sinalizado por transparência — nenhuma fonte de verdade (CLAUDE.md, PRD, Technical Brief, spec da US-079) trata essa flag como bloqueio de implementação; o único critério de vigência é `deprecated` (CLAUDE.md Seção 7), que este endpoint não tem. Não interpretado como impedimento, apenas registrado.
+
+---
+
+## Epic 13 — Reports (Getrak Web, Release 3, novo 19/08/2026) (US-049, US-050)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_reports` | US-049 | `GET /v1.0/report/reports` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_reports_summary` | US-050 | `GET /v1.0/report/reports/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 2 tools implementadas e testadas (mocks/contrato + validação real), 14 testes automatizados novos (325 no total). Ambas reaproveitam o fluxo de token delegado já existente (US-046/047/048) — nenhuma infraestrutura nova de autenticação.
+
+**Domínio no catálogo MCP:** novo domínio `reports`.
+
+**Confirmado, por inspeção completa da tag `Reports` no `openapi.json` antes de codificar, que ela documenta 7 endpoints no total — só 2 de leitura, os 5 restantes são escrita:**
+- `GET /v1.0/report/reports` (US-049) e `GET /v1.0/report/reports/summary` (US-050) — os 2 implementados.
+- `POST /v1.0/report/reports` (criação), `POST /v1.0/report/reports/share` (compartilhamento), `PUT`/`DELETE /v1.0/report/reports/report-scheduling/{id}` (agendamento) e `DELETE /v1.0/report/reports/{reportId}` (exclusão) — todos de escrita, **nenhum implementado**, conforme instruído.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics 10/16/17/18/19. Os 2 endpoints chamados diretamente antes de codificar, confirmando não serem `deprecated`.
+
+**ACHADO CRÍTICO EM `search_reports` — paginação obrigatória, diferente de todo o resto do domínio Getrak Web:** `page` e `per_page` (nome real de wire, já indicado pelo próprio `x-codeSamples` do `openapi.json` — `?page=1&per_page=10` — e confirmado empiricamente) não são "opcionais com padrão no servidor" como em todos os outros endpoints paginados já implementados (Epic 10/16/17/18/19). Confirmado isolando cada caso:
+- Sem nenhum parâmetro de paginação → HTTP 500 `{"error":"Internal error"}`.
+- Só `page`, sem `per_page` → o mesmo HTTP 500.
+- Só `per_page`, sem `page` → o mesmo HTTP 500.
+- `page` + `per_page` juntos (mesmo com valores triviais, `page=1&per_page=2`) → HTTP 200 normal.
+
+**Isso não exigiu nenhuma validação adicional na tool:** o helper `buildPagePerPagePagination`/`normalizePagination`, já usado por todo o domínio Getrak Web, sempre preenche `page`/`page_size` com um valor concreto (padrão 1/50) mesmo quando o consumidor da tool não informa nenhum dos dois — ou seja, a tool sempre envia os dois parâmetros à API Core, nunca reproduzindo o cenário que causa o HTTP 500. Documentado porque é a primeira vez neste projeto que a ausência de paginação quebra a chamada em vez de aplicar um padrão do lado do servidor — relevante para qualquer adapter futuro que reutilize esses helpers.
+
+**ACHADO QUE INVERTE O PADRÃO DO EPIC 19 — formato de wire dos filtros de múltiplos valores:**
+- `filters[report_type][in]` e `filters[status]` aceitam múltiplos valores **repetindo a mesma chave de query, SEM sufixo `[]`** — confirmado com union real e matematicamente exato: `report_type=km_traveled` sozinho → `total=80`; `report_type=speed` sozinho → `total=254`; os dois juntos (chave repetida) → `total=334` (exatamente 80+254, sem sobreposição). O mesmo padrão foi confirmado para `filters[status]` (`status=1`→50, `status=3`→905, os dois juntos→955).
+- **Adicionar o sufixo `[]` (`filters[report_type][in][]=...`) FAZ O FILTRO SER SILENCIOSAMENTE IGNORADO** — retorna o total não filtrado (1203) em vez de aplicar o filtro ou dar erro.
+- Isso é o **OPOSTO EXATO** do achado do Epic 19 (`GET /v1.0/operations`), onde faltar o sufixo `[]` em `filters[operation_type][in]` quebrava a chamada com HTTP 500. **Confirma, de forma concreta e não hipotética, a disciplina do projeto de nunca assumir o formato de wire de um endpoint por analogia com outro já implementado** — cada um dos dois endpoints foi validado isoladamente contra produção real antes de codificar, e cada um exigiu o tratamento oposto.
+
+**Outros achados reais confirmados antes de codificar:**
+1. **`order[created_at]` (ordenação, `search_reports`) CONFIRMADO FUNCIONANDO CORRETAMENTE** nas duas direções (`ASC`/`DESC`, ordenação real observada nos timestamps retornados) — diferente do `order[date]` do Epic 19, que estava quebrado no backend. Exposto na tool como `sort_direction`.
+2. **`filters[created_at_start]`/`filters[created_at_end]` (intervalo de criação) confirmados funcionando** com valores ISO 8601 reais.
+3. **Filtro sem correspondência retorna lista vazia normalizada, nunca erro** — confirmado com um `user_id` inexistente e um `report_type` inventado, ambos HTTP 200 com `{data: [], total: 0}`.
+4. **`get_reports_summary` — `filters[report_type][notin]` confirmado com efeito real mensurável**: sem filtro, `{individual: 454, scheduled: 769}`; excluindo `km_traveled`, `{individual: 448, scheduled: 695}`; excluindo `speed`, `{individual: 355, scheduled: 607}` — reduções reais e distintas, confirmando que o filtro é aplicado de fato. O valor de exemplo do próprio `openapi.json` (`filters[report_type][notin]=individual`) não tem efeito nenhum quando testado — não é um bug do endpoint, é só um mau exemplo de documentação (`individual` é uma categoria do objeto de resposta `reports.individual`, não um `report_type` real); registrado para não ser confundido com um achado de comportamento quebrado. Mesmo padrão de wire do item anterior: `[]` no filtro `notin` também é silenciosamente ignorado.
+5. **`get_reports_summary` funciona sem nenhum parâmetro** — diferente de `search_reports`, não exige paginação (resposta é um único objeto agregado, sem lista).
+
+**Parâmetros documentados e NÃO expostos nesta rodada** (reduzindo a superfície de risco em vez de adivinhar contra produção, mesma disciplina de Epic 16/19): `filters[user_id]`, `filters[report_scheduling_id]` (+ `[is_null]`) e `include[]` em `search_reports`. Não testados nesta rodada — fora dos filtros citados como exemplo pela spec (tipo, período, status); item para validação futura, não uma limitação definitiva.
+
+**Nota sobre `"x-internal": true`:** assim como `GET /v1.0/operations` (Epic 19), os 2 endpoints de leitura desta tag também têm essa flag no `openapi.json`. Mesmo tratamento: não é critério de bloqueio (só `deprecated` é, CLAUDE.md Seção 7), apenas registrado por transparência.
+
+**Campo `link` na resposta de `search_reports`:** contém uma URL S3 pré-assinada (com assinatura/expiração) para baixar o relatório quando pronto. Repassado como veio, sem tratamento especial — mesmo padrão de "repassar como recebido" já usado para campos tipo-URL/credencial em outros domínios (ex.: `credentials.token` em `search_central_integrations`).
+
+---
+
+## Epic 21 — Equipments (Getrak Web, Release 3, novo 19/08/2026) (US-090 a US-102)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_web_equipments` | US-090 | `GET /v1.0/equipments` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_web_equipment_details` | US-091 | `GET /v1.0/equipments/{serial_number}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_devices` | US-092 | `GET /v1.0/equipments/devices` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipments_summary` | US-093 | `GET /v1.0/equipments/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_carriers` | US-094 | `GET /v1.0/equipments/carriers` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_inventory_summary` | US-095 | `GET /v1.0/equipments/inventory-summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_inventory` | US-096 | `GET /v1.0/equipments/inventory` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_tags` | US-097 | `GET /v1.0/equipments/tags` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipment_tag_details` | US-098 | `GET /v1.0/equipments/tags/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_device_models` | US-099 | `GET /v1.0/equipments/device-models` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_equipment_import_requests` | US-100 | `GET /v1.0/equipments/files` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipment_import_items` | US-101 | `GET /v1.0/equipments/files/{id}/items` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_equipment_import_summary` | US-102 | `GET /v1.0/equipments/files/{id}/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 13 tools implementadas e testadas (mocks/contrato + validação real), 54 testes automatizados novos (379 no total) — o maior Epic da Release 3 até agora. Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `web_equipments` — deliberadamente distinto de `equipments` (Epic 4, `EquipmentsIntegracao`/`oauth2ClientCredentials`), mesma convenção de `web_users` vs. `accounts` e `web_vehicles` vs. `vehicles`.
+
+**Confirmado que a tag `Equipments` do `openapi.json` também documenta operações de escrita** — `DELETE /v1.0/equipments/{serial_number}`, `POST`/`PUT /v1.0/equipments/devices`, `POST`/`PUT`/`DELETE /v1.0/equipments/tags` (+ `/{id}`) e `POST /v1.0/equipments/files` (upload de arquivo de importação). Nenhuma delas implementada — só os 13 endpoints de leitura listados acima.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics anteriores. Os 13 endpoints chamados diretamente antes de codificar, um por um — a tarefa pediu explicitamente para não assumir um padrão único de paginação entre eles, e essa cautela se confirmou necessária (ver achados abaixo).
+
+### Paginação — três estilos reais distintos confirmados entre os 13 endpoints
+
+1. **`page`/`per_page` nativo** (`/equipments`, `/equipments/carriers`, `/equipments/inventory`, `/equipments/device-models`, `/equipments/files`, `/equipments/files/{id}/items`) — o MESMO bug `perPage`/`per_page` de todo o resto do domínio Getrak Web reproduz aqui também nos 6: `perPage` silenciosamente ignorado, `per_page` respeitado. Implementado corretamente desde o início nos 6.
+2. **Objeto agregado único, sem paginação** (`/equipments/summary`, `/equipments/inventory-summary`, `/equipments/files/{id}/summary`).
+3. **ACHADO CRÍTICO — sem paginação nativa nenhuma** (`/equipments/devices`, `/equipments/tags`): confirmado empiricamente, isolando cada parâmetro, que `page`, `per_page`, `perPage`, `limit` e `offset` são TODOS ignorados — o endpoint sempre retorna a lista COMPLETA. Em `/equipments/devices`, isso significa devolver TODOS os ~18.200 equipamentos da central (~9 MB) em toda chamada, mesmo sem filtro nenhum. Tratado com `createClientSideSliceAdapter` (`foundation/pagination/pagination.ts`) — o mesmo adapter já existente no projeto, usado por `get_centrals` (Epic 9) para o mesmo problema — que corta a lista no lado do MCP para respeitar o guardrail de página/tamanho (CLAUDE.md Seção 4). Isso não elimina o custo real de rede/memória de buscar a lista inteira a cada chamada — uma limitação real do endpoint upstream, sinalizada explicitamente via `warnings` na resposta de `search_equipment_devices`/`search_equipment_tags`, não escondida do consumidor. Em `/equipments/tags` o dataset atual é pequeno (10 itens), mas o mesmo tratamento foi aplicado por consistência e proteção contra crescimento futuro.
+
+### Achado adicional em `/equipments/devices` — parâmetros de nível raiz confirmadamente quebrados/enganosos
+
+Os parâmetros documentados de nível raiz `device` e `serial_number` (sem `filters[...]`) foram testados e são **confirmadamente inúteis/quebrados para filtragem**: `device=<valor real>` retornou a lista INTEIRA sem filtrar (mesmo tamanho de bytes que sem nenhum parâmetro); `serial_number=<qualquer valor>` sozinho retornou HTTP 400 `{"error":"Device is mandatory"}` — um erro que não faz sentido para o parâmetro enviado. **Não expostos como parâmetros da tool** — só os filtros `filters[full_device_number]` (busca exata, confirmado funcionando) e `filters[status]` (confirmado reduzindo a lista real) foram expostos.
+
+### Sobreposição investigada — US-090 (`search_web_equipments`) vs. US-020 (`search_equipments`, Epic 4)
+
+Investigada conforme instruído, comparando os campos reais confirmados agora com o shape já documentado/implementado de US-020:
+- **US-020** (`oauth2ClientCredentials`, `GET /v0.2/equipamentos/integracao`): `{chip, equipamento, id_veiculo, modulo, placa, sistema}` — visão orientada a VÍNCULO COM VEÍCULO (módulo, placa, id do veículo vinculado), nomes de campo em português.
+- **US-090** (esta tool, `oauth2Password`): `{apn, carrier_name, central, chip_serial_number, created_at, description, device, device_number, model: {...}, serial_number, status, updated_at, user}` — visão orientada a INVENTÁRIO/ATIVO DE TELECOM (modelo do dispositivo, operadora/APN, chip, ciclo de vida via `status` L/D/M/A), nomes de campo em inglês, **sem nenhum campo de vínculo com veículo**.
+- **Conclusão: mesmo domínio nominal ("busca de equipamentos"), mas conjuntos de campos quase inteiramente disjuntos** — a sobreposição é de nome/espaço conceitual, não de dado duplicado. Sobreposição bem mais fraca que a já registrada entre US-070/US-008 (Epic 17), que retornavam conceitos de cadastro de veículo quase idênticos. **Nenhuma tool consolidada ou descartada** — decisão de Produto/Engenharia, sinalizada no PR.
+
+### Utilidade real de US-100/101/102 (importação) — avaliada conforme pedido
+
+A spec já sinalizava natureza de acompanhamento de job, não domínio de negócio tradicional, pedindo avaliação explícita se o caso de uso não ficasse claro. Confirmado com dados reais desta central: existem 5 jobs de importação em lote de equipamentos já executados, todos com status `done_with_errors` — histórico real de operações de importação (não fila de jobs pendentes). **Conclusão: o caso de uso ficou claro** — suporte/diagnóstico ("esta importação teve erro? quais linhas falharam e por quê?"), mesmo papel que `search_operations` (Epic 19) e `search_reports` (Epic 13) cumprem para outros tipos de job/registro operacional deste projeto. Confirmado também que `get_equipment_import_items` com `filters[status][eq]=failure` reduziu corretamente de 4 para 2 itens, exatamente os 2 que também apareciam como `failures: 2` em `get_equipment_import_summary` para o mesmo id — os dois endpoints são consistentes entre si. Implementadas sem bloqueio.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **`get_equipments_summary` (US-093) — shape de resposta diferente do documentado.** `openapi.json` documenta `{items: object}`; resposta real é um objeto plano `{active, inactive, maintenance, discarded, total, lost}`. `filters[model_id][eq]` confirmado com efeito real (contagens bem menores e distintas com `model_id=3`).
+2. **`search_inventory` (US-096) — `order[current]=DESC` confirmado funcionando corretamente** (valores retornados em ordem decrescente real: 48, 30, 27, 17...). O filtro de modelo é `filters[model][eq]` (não `filters[model_id][eq]`, apesar do campo de saída se chamar `model.id`) — usado exatamente como documentado.
+3. **`search_equipment_import_requests` (US-100) — `order[id]` confirmado funcionando corretamente** nas duas direções (`ASC`: 126,127,361,362,487; `DESC`: 487,362,361,127,126).
+4. **`get_web_equipment_details` (US-091) e `get_equipment_tag_details` (US-098) — HTTP 404 limpo confirmado** para entidade inexistente (`{"error":"Equipment not found"}`/`{"error":"Tag not found"}`), mapeados para `EQUIPMENT_NOT_FOUND`/`EQUIPMENT_TAG_NOT_FOUND` via `notFoundCode`. `get_equipment_import_items`/`get_equipment_import_summary` (US-101/102) também confirmados com 404 limpo para id de importação inexistente (mensagens ligeiramente diferentes entre os dois — `"Equipment import not found"` vs. `"Import not found"` — ambas mapeadas para o mesmo código `EQUIPMENT_IMPORT_NOT_FOUND`, já que o texto exato nunca é repassado ao consumidor).
+5. **`search_device_models` (US-099) — `filters[all_states]=true` não alterou o total nesta central** (126 com e sem o filtro) — sem evidência de estar quebrado, apenas que todos os modelos cadastrados já estão no estado padrão (`AVAILABLE`) nesta central de demonstração; diferente do achado de "confirmadamente quebrado" do Epic 19 (`order[date]`), que tinha um erro de servidor observável.
+6. **Dado sensível observado incidentalmente em `/equipments/devices`:** um dos registros reais retornados continha um valor de `apn` com um payload de teste de XSS (`<script>alert('HaHah')</script>`), confirmando que a API Core repassa texto livre de terceiros sem sanitização — repassado como veio (a tool não executa nem renderiza HTML; é responsabilidade do lado que eventualmente exibir esse campo em UI tratá-lo como não confiável). Registrado por transparência, não uma ação tomada nesta implementação.
+
+**Nota sobre `"x-internal": true`:** também presente nos endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/19). Não tratado como bloqueio, apenas registrado.
+
+---
+
+## Epic 15 — Clients (Getrak Web, Release 3, novo 19/08/2026) (US-061 a US-066)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_web_clients` | US-061 | `GET /v1.0/client` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_clients_summary` | US-062 | `GET /v1.0/clients/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_subclients_summary` | US-063 | `GET /v1.0/clients/subclients/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `search_entity_import_requests` | US-064 | `GET /v1.0/clients/import-entity` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_entity_import_details` | US-065 | `GET /v1.0/clients/import-entity/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+| `get_entity_import_items` | US-066 | `GET /v1.0/clients/import-entity/{id}/items` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (19/08/2026) |
+
+**Status:** ✅ 6 tools implementadas e testadas (mocks/contrato + validação real), 27 testes automatizados novos (406 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `web_clients` — deliberadamente distinto de `accounts`/`search_clients` (Epic 9, `ClientsIntegracao`/`oauth2ClientCredentials`), mesma convenção de `web_users` vs. `accounts`, `web_vehicles` vs. `vehicles` e `web_equipments` vs. `equipments`.
+
+**Confirmado que a tag `Clients` do `openapi.json` também documenta operações de escrita** — `PUT /v1.0/clients/{id}/status`, `PUT /v1.0/clients/batch-status`, `PUT /v1.0/clients/subclients/{id}/status`, `PUT /v1.0/clients/subclients/batch-status` (mudança de status de cliente/subcliente, individual e em lote) e `POST /v1.0/clients/import-entity` (upload de arquivo de importação). Nenhuma delas implementada — só os 6 endpoints de leitura.
+
+**Validado contra produção real em 19/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics anteriores. Os 6 endpoints chamados diretamente antes de codificar.
+
+### Achado crítico em `search_web_clients` (US-061) — superfície de campos muito mais restrita que o documentado
+
+O schema de resposta documentado no `openapi.json` promete um item de cliente completo (`business_phone, city, document, email, id, name, neighborhood, state, status, street_address, street_number, type`). Na prática:
+- **Sem `fields[]`, a resposta real só traz `{id, name}`.**
+- **`fields[]` tem um enum documentado restrito a só 4 valores:** `id`, `name`, `city`, `createdAt`. Confirmado empiricamente que pedir qualquer campo fora desse enum (`type`, testado) derruba a chamada inteira com HTTP 500 (`{"error":"Property \"type\" was not found in \"Client\". Make sure your query is correct."}`).
+- **Conclusão: os campos de contato/documento do cliente (CNPJ/documento, telefone, e-mail, endereço, tipo, status) não são obtíveis por esta tool**, apesar de estarem documentados no schema de resposta do próprio endpoint — só `id`, `name`, e opcionalmente `city`/`created_at`. Implementado com `fields` restrito ao mesmo enum de 4 valores confirmado seguro, e a descrição da tool já avisa explicitamente para usar `search_clients` (Epic 9) quando esses dados forem necessários.
+- `fields[]=createdAt` (camelCase de entrada) mapeia corretamente para a chave de saída `created_at` (snake_case) — mesmo padrão camelCase-de-entrada/snake_case-de-saída já visto em outros endpoints Getrak Web (ex.: `GET /v1.0/users/{id}`, Epic 16).
+
+### Achado que reproduz o padrão do Epic 19 (oposto do Epic 13) — formato de wire de `filters[id][in]`
+
+Confirmado que `filters[id][in]` em `GET /v1.0/client` **exige o sufixo de array `[]`**: `filters[id][in][]=<id1>&filters[id][in][]=<id2>` filtrou corretamente para exatamente os 2 ids reais pedidos; sem o `[]` (chave repetida sem sufixo), o filtro foi **silenciosamente ignorado** (retornou o total não filtrado, 2102). Mesmo padrão de `/v1.0/operations` (Epic 19), oposto do confirmado em `/v1.0/report/reports` (Epic 13) e em `/v1.0/equipments`/`/v1.0/equipments/summary` (Epic 21, comma-joined) — mais uma reconfirmação de que cada endpoint precisa ser validado individualmente.
+
+Demais filtros confirmados funcionando com totais reais distintos: `filters[status]` (`Y`→1868, `S`→88 — consistentes com `get_clients_summary`), `filters[type]` (`individual`→148, `legal-entity`→27), `filters[name][inc]`/`filters[city][inc]` (substring), `filters[created_at][gte]`/`[lte]` (intervalo). `order[id]`/`order[name]` confirmados funcionando corretamente nas duas direções. Filtro sem correspondência retorna lista vazia normalizada, nunca erro.
+
+### Sobreposição investigada — US-061 (`search_web_clients`) vs. US-030 (`search_clients`, Epic 9)
+
+Investigada conforme instruído. Sem credencial `oauth2ClientCredentials` disponível para testar US-030 ao vivo (mesma limitação já registrada para todo o Epic 2/4/9), a comparação foi feita contra o shape já documentado/confirmado de US-030:
+- **US-030** (`oauth2ClientCredentials`, `GET /v0.2/clientes/integracao`): campos documentados incluem `ativo, cel, cel2, cnpj, descricao, email, email2, endereco, ...` — nomes em português, aparentando ser o registro de cliente **completo** (contato, documento, endereço).
+- **US-061** (esta tool, `oauth2Password`): **estruturalmente limitada pelo próprio endpoint** a `{id, name}` (+ opcionalmente `city`/`created_at` via `fields[]`) — ver achado acima.
+- **Conclusão: diferente da sobreposição fraca já registrada em US-090/US-020 (Epic 21, campos quase totalmente disjuntos por natureza conceitual), aqui os dois endpoints parecem representar o MESMO registro de cliente subjacente** (mesma central, mesmo conceito de "cliente") — mas com uma diferença real e mensurável de superfície exposta, que é uma limitação do próprio endpoint `GET /v1.0/client`, não uma escolha desta implementação. **Nenhuma tool consolidada ou descartada** — decisão de Produto/Engenharia, sinalizada no PR. Recomendação prática incluída na descrição da tool: se o consumidor precisar de CNPJ/telefone/e-mail, usar `search_clients` (Epic 9), não esta.
+
+### Achado crítico em `get_entity_import_items` (US-066) — HTTP 500 em vez de 404 para id inexistente
+
+Diferente de `get_entity_import_details` (US-065), que retorna um HTTP 404 limpo (`{"error":"import not found"}`) para um id de importação inexistente, `get_entity_import_items` retorna **HTTP 500** para o MESMO cenário conceitual (`{"status":500,"error":"Import entity with id 999999 not found."}`). Isso é tratado corretamente **sem nenhum código extra**, graças ao comportamento já existente de `normalizeUpstreamHttpError` (`foundation/errors/error-normalizer.ts`): qualquer status HTTP fora de 404/401/403/429/5xx-transiente cai no branch final, que usa `domainCode ?? UPSTREAM_ERROR` — ou seja, o HTTP 500 com `notFoundCode: "ENTITY_IMPORT_NOT_FOUND"` já mapeia corretamente para o mesmo código usado pelo 404 limpo de US-065. Esse é o MESMO tradeoff já aceito e documentado em `get_user_details` (Epic 16) e `get_vehicle_by_plate` (Epic 17): um HTTP 500 genuinamente não relacionado a "não encontrado" também seria mapeado para `ENTITY_IMPORT_NOT_FOUND` por esse mesmo mecanismo — aceito conscientemente, não uma omissão.
+
+### Utilidade real de US-064/065/066 (importação de entidade) — avaliada conforme pedido
+
+Mesma natureza operacional de job de importação já observada em US-100/101/102 (Epic 21). Confirmado com dados reais desta central: **42 requisições reais de importação de clientes/subclientes** (31 `client` + 11 `subclient`, confirmado com `filters[entity]`), todas com status `done_with_errors` — histórico real de importações executadas, não uma fila de jobs pendentes. **Conclusão: o caso de uso é claro** — suporte/diagnóstico de erros de carga em lote, mesmo papel que US-100/101/102 cumprem para importação de equipamentos. Implementadas sem bloqueio.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **Path singular vs. plural em `GET /v1.0/client`:** o `openapi.json` declara o path como singular (`/v1.0/client`) em `paths`, mas o próprio `x-codeSamples` usa o plural (`/v1.0/clients`). Confirmado empiricamente que ambos retornam resultado idêntico (mesmo total, mesmos itens) — implementado com o path singular, por ser o que está de fato declarado em `paths` (a fonte de verdade estrutural do documento).
+2. **`get_clients_summary`/`get_subclients_summary` (US-062/063) — nenhum parâmetro de request; resposta real `{active, inactive, suspended, total}`**, exatamente como documentado. Consistência cruzada confirmada: `active: 1868` e `suspended: 88` de `get_clients_summary` batem exatamente com `filters[status]=Y`/`filters[status]=S` de `search_web_clients`.
+3. **Pagination — mesmo bug `perPage`/`per_page` do resto do domínio Getrak Web**, reproduzido nos 3 endpoints de lista deste domínio (`/v1.0/client`, `/v1.0/clients/import-entity`, `/v1.0/clients/import-entity/{id}/items`).
+4. **`filters[entity]` em `search_entity_import_requests`** confirmado funcionando: `client`→31, `subclient`→11, soma exata do total sem filtro (42).
+5. **`filters[status][eq]`/`order[name]` em `get_entity_import_items`** confirmados funcionando via o próprio `x-codeSamples` do `openapi.json` e teste real (reduziu corretamente para o item com status `failure`).
+
+**Nota sobre `"x-internal": true`:** também presente em todos os 6 endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/19/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
+## Epic 14 — Maintenance (Getrak Web, Release 3, novo 20/08/2026) (US-051 a US-060)
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_fuel_supplies` | US-051 | `GET /v2.0/maintenance/fuel-supply` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_fuel_supply_summary` | US-052 | `GET /v2.0/maintenance/fuel-supply/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_fuel_supply_details` | US-053 | `GET /v2.0/maintenance/fuel-supply/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_fuel_supply_attachments` | US-054 | `GET /v2.0/maintenance/fuel-supply/{id}/attachments` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_maintenance_services` | US-055 | `GET /v2.0/maintenance/services` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenance_services_summary` | US-056 | `GET /v2.0/maintenance/services/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_maintenances` | US-057 | `GET /v2.0/maintenance/maintenances` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenances_summary` | US-058 | `GET /v2.0/maintenance/maintenances/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenance_details` | US-059 | `GET /v2.0/maintenance/maintenances/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_maintenance_attachments` | US-060 | `GET /v2.0/maintenance/maintenances/{id}/attachments` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+
+**Status:** ✅ 10 tools implementadas e testadas (mocks/contrato + validação real), 42 testes automatizados novos (448 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `maintenance` (sem prefixo `web_`) — não existe nenhum equivalente `oauth2ClientCredentials`/`Integracao` deste domínio em nenhum epic anterior, mesma convenção de nomenclatura já usada para `operations`/`reports`/`notifications`.
+
+**Confirmado que todos os 10 endpoints são `v2.0` e nenhum é `deprecated`** — diferente de outros epics anteriores, aqui não havia nenhum equivalente `v0.x`/`v1.0` a evitar. Confirmado também, por inspeção completa da tag `Maintenance`, que ela documenta um número grande de operações de escrita (`POST`/`PUT`/`DELETE` de abastecimento, manutenção — incluindo `bulk-remove` e `finish` — e serviço — incluindo `bulk-remove` e `bulk-update/status` — além de `POST /v2.0/maintenance/attachments/upload-url`) — nenhuma delas implementada, só os 10 endpoints de leitura.
+
+**Validado contra produção real em 20/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os Epics anteriores. Os 10 endpoints chamados diretamente antes de codificar, um por um — a tarefa pediu explicitamente para não assumir um padrão único de paginação entre eles, e essa cautela se confirmou necessária mais uma vez (achados abaixo).
+
+### Achado crítico — DOIS estilos de envelope de paginação diferentes dentro do MESMO domínio Maintenance
+
+- `GET /v2.0/maintenance/fuel-supply` e `GET /v2.0/maintenance/maintenances` usam o padrão plano `{data, page, pages, total}` já visto em todo o resto do domínio Getrak Web — `extractPagePerPageEnvelope` reaproveitado sem alteração.
+- **`GET /v2.0/maintenance/services` usa um envelope ANINHADO real: `{data, pagination: {total, page, itemsPerPage, totalPages}}`** — confirmado empiricamente, e ainda por cima com chaves camelCase diferentes das que o próprio `openapi.json` documenta para essas mesmas chaves (`items_per_page`/`total_pages`, snake_case) — mais uma divergência documentação-vs-realidade (CLAUDE.md Seção 7). `extractPagePerPageEnvelope` não se aplica; implementada uma extração local (`extractServicesEnvelope`) só para este endpoint.
+- Em ambos os estilos, o NOME REAL do parâmetro de query de tamanho de página continua sendo `per_page` — confirmado que nem `perPage` nem `items_per_page` (tentativa alinhada ao nome de resposta) têm qualquer efeito nos 3 endpoints de lista deste domínio.
+
+### Achado crítico — validação de existência de veículo é específica do sub-domínio `fuel-supply`, não do domínio Maintenance inteiro
+
+Confirmado que `filters[vehicle_id]` em `search_fuel_supplies`/`get_fuel_supply_summary` retorna **HTTP 404** (`{"error":"Vehicle not found"}`) quando o `vehicle_id` não existe — diferente de todo outro filtro deste domínio (que retornam lista/resumo vazio normalizado). Testado explicitamente para descartar a hipótese de regra geral: o MESMO conceito de filtro (`filters[vehicle_id]`/`filters[vehicle_id][in][]`) em `search_maintenances` e `get_maintenances_summary` retorna resultado **zerado/vazio normalmente (HTTP 200)** para um `vehicle_id` inexistente. Ou seja, a validação de existência é uma regra do sub-domínio `fuel-supply` especificamente, não do domínio `Maintenance` como um todo — reforça, mais uma vez, que nem sub-endpoints do mesmo domínio nominal podem ser assumidos uniformes. `notFoundCode: "VEHICLE_NOT_FOUND"` foi aplicado em `search_fuel_supplies`/`get_fuel_supply_summary` (uso não convencional em tools de lista/resumo, normalmente reservado a lookups por id, mas justificado pelo comportamento real confirmado) e NÃO aplicado em `search_maintenances`/`get_maintenances_summary`.
+
+### Achado crítico em `get_maintenance_details` (US-059) — a própria spec seria violada sem uma correção não documentada
+
+A spec desta User Story exige explicitamente que o detalhe inclua "serviços associados + última execução", e o schema de resposta documentado no `openapi.json` mostra `services`/`last_execution` como propriedades sempre presentes do objeto de detalhe. **Isso é falso no comportamento real**: `GET /v2.0/maintenance/maintenances/{id}` sem parâmetro extra NÃO retorna nenhum dos dois campos (ausentes, não `null`). O endpoint só os inclui quando recebe o parâmetro `include[]` — documentado no `openapi.json` **apenas para o endpoint de LISTA irmão** (`GET /v2.0/maintenance/maintenances`), não para o de detalhe — mas confirmado, na prática, aceito e necessário também no detalhe. **Se a tool não enviasse `include[]=last_execution&include[]=services` proativamente, ela violaria seu próprio critério de aceite sem nenhum aviso.** Corrigido: `get_maintenance_details` sempre envia os dois valores de `include[]`, incondicionalmente, não exposto como parâmetro de entrada (não haveria motivo de negócio para pedir menos do que a própria spec exige).
+
+### Decisão de bundle — US-054/US-060 (anexos), avaliada conforme pedido
+
+**Decisão: mantidos como tools SEPARADAS** de `get_fuel_supply_details`/`get_maintenance_details`, não bundled. Racional, baseado em evidência coletada antes de decidir:
+1. **Não existe mecanismo nativo de composição.** `GET /v2.0/maintenance/maintenances/{id}` — que TEM um `include[]` funcional e confirmado (usado para `last_execution`/`services`, ver achado acima) — foi testado explicitamente com `include[]=attachments` e não teve NENHUM efeito (resposta idêntica com ou sem esse valor). Ou seja, mesmo o único mecanismo de composição real que este domínio tem não se estende a anexos — não é uma limitação genérica de "endpoints de detalhe não aceitam parâmetro nenhum" (esse não é o caso), é uma limitação real e específica, confirmada por teste direto, não presumida.
+2. **Anexos são um recurso com ciclo de vida próprio.** Cada item tem `status` (`completed`/`failed`/`pending_upload`) e uma `file_url` pré-assinada com **expiração curta** (`expires_at` ~1h após `created_at`, confirmado no exemplo do `openapi.json`). Embutir isso sempre no detalhe obrigaria toda chamada de `get_fuel_supply_details`/`get_maintenance_details` a pagar o custo de uma segunda consulta e devolver links que podem expirar antes de serem usados, mesmo quando o consumidor não pediu anexos.
+3. **Consistente com o padrão já estabelecido no resto do projeto** para pares detalhe+drill-down relacionado: sempre tools separadas (US-065/US-066 no Epic 15, US-101/US-102 no Epic 21, `get_equipment_tag_details` vs. `search_equipment_tags` no Epic 21). Bundlar aqui seria a primeira exceção a esse padrão em todo o projeto, sem um motivo técnico forte o suficiente (a API não oferece nenhuma forma nativa de compor os dois).
+
+Confirmado que os dois pares detalhe/anexos deste epic (US-053/054 e US-059/060) se comportam de forma **consistente** entre si para id inexistente — ambos retornam HTTP 404 limpo com a mesma mensagem em cada par (`"Fuel supply not found"`/`"Maintenance not found"`) — diferente da inconsistência 404-vs-500 já registrada para pares análogos no Epic 15/21.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **`search_fuel_supplies` — `fields[]` confirmado como seletor EXATO**, e "Defaults to id only" (documentado) confirmado verdadeiro na prática: sem `fields[]`, cada item da resposta é literalmente só `{id}`. **Diferente de `search_maintenances`**, onde a mesma documentação ("Defaults to id only") é **falsa** — sem `fields[]`, a resposta já vem com o registro quase completo; e mesmo pedindo um subconjunto pequeno via `fields[]`, campos não pedidos (`central_id`, `maintenance_recurrence_id`, `status`, `type`) continuam aparecendo. `fields[]` não é exposto em `search_maintenances` por esse comportamento real inconsistente demais para confiar; é exposto em `search_fuel_supplies`, onde se comporta exatamente como documentado.
+2. **`filters[fuel_type][in][]` (fuel-supply) e `filters[status][in][]`/`filters[vehicle_id][in][]`/`filters[service_id][in][]` (maintenances) — todos exigem o sufixo de array `[]`**, confirmado empiricamente (sem `[]`, o filtro é silenciosamente ignorado, retornando o total não filtrado). Diferente de outros epics, aqui o próprio nome do parâmetro no `openapi.json` já inclui o `[]` explicitamente — a documentação acertou o formato desta vez.
+3. **`amount`/`volume`/`price_per_unit` (fuel-supply) vêm como STRING** na resposta real (ex.: `"408.00"`, `"12.000"`), apesar de documentados como `number` — repassados como vieram.
+4. **Consistência cruzada confirmada em ambos os pares busca/resumo:** `get_fuel_supply_summary` sem filtro bateu com o total de `search_fuel_supplies`; `get_maintenance_services_summary` (`active: 13, inactive: 0`) bateu exatamente com `filters[status]=active`/`inactive` de `search_maintenance_services` para a mesma central.
+5. **`order[supply_date]`/`order[vehicle_id]` (fuel-supply), `order[name]`/`order[value_cents]` (services) e `order[scheduled_date]` (maintenances) confirmados FUNCIONANDO corretamente** nas direções testadas.
+
+**Nota sobre `"x-internal": true`:** também presente em todos os 10 endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/15/19/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
+## Epic 20 — Journeys (Getrak Web, Release 3, novo 20/08/2026) (US-080 a US-089)
+
+| Tool | User Story | Endpoint(s) | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `search_journeys` | US-080 | `GET /v2.0/journeys` (primário) + fallback `GET /v1.0/journeys` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_journey_details` | US-081 | `GET /v1.0/journeys/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_journeys_summary` | US-082 | `GET /v1.0/journeys/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_drivers` | US-083 | `GET /v2.0/journeys/drivers` (primário) + fallback `GET /v1.0/journeys/drivers` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_driver_details` | US-084 | `GET /v2.0/journeys/drivers/{id}` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_drivers_summary` | US-085 | `GET /v1.0/journeys/drivers/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `search_identifiers` | US-086 | `GET /v1.0/journeys/identifiers` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_identifiers_summary` | US-087 | `GET /v1.0/journeys/identifiers/summary` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_available_vehicles_for_journey` | US-088 | `GET /v1.0/journeys/vehicles/available` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_identifier_history` | US-089 | `GET /v1.0/journeys/identifier-history` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+
+**Status:** ✅ 10 tools implementadas e testadas (mocks/contrato + validação real via chamada direta a cada endpoint e via smoke test stdio do próprio servidor MCP), 44 testes automatizados novos (492 no total, incluindo 1 novo teste de fundação para o achado do HTTP 204 em `ApiCoreClient`). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `journeys` (sem prefixo `web_`) — mesma convenção de nomenclatura já usada para `operations`/`reports`/`notifications`/`maintenance` (domínios Getrak Web sem contraparte técnica a desambiguar). Confirmado, por inspeção completa da tag `Journeys` no `openapi.json`, que ela também documenta um número grande de operações de escrita (`POST`/`PUT`/`DELETE` de viagens, motoristas, identificadores, reprocessamento, fechamento de viagem, vínculo em lote de veículos a motorista) — nenhuma delas implementada, só os 10 endpoints de leitura.
+
+**Validado contra produção real em 20/08/2026** — mesma credencial de usuário real de teste da central de demonstração já usada para os epics anteriores. Os 10 endpoints (e ambas as versões de `journeys`/`journeys/drivers`) chamados diretamente antes de codificar.
+
+### GAP-020 — duas versões vigentes simultaneamente (`v1.0`/`v2.0`) para `journeys` e `journeys/drivers`
+
+Confirmado no `openapi.json` que nenhuma das duas versões é `deprecated` para `GET /journeys` e `GET /journeys/drivers` — exceção real à regra geral do projeto de "só existe uma versão vigente por vez". Resolvido pela decisão de Engenharia já registrada nas specs de US-080/US-083 ("Opção A", 16/08/2026), aplicada nesta implementação:
+
+- `search_journeys`/`search_drivers` são tools **únicas** — não foram criadas tools separadas por versão.
+- **v2.0 como fonte primária** (mais parâmetros de filtro/seleção de campo em `journeys`, embora o inverso valha para alguns filtros específicos de `journeys` — ver achado de `filters[client_id]` abaixo).
+- **Fallback interno para v1.0**, implementado em `callWithV1Fallback` (novo helper em `src/domain/journeys/shared.ts`), acionado só quando a chamada a v2.0 falha com um erro real de upstream (`UPSTREAM_ERROR`/`UPSTREAM_UNAVAILABLE`/`TIMEOUT`) — nunca em erro de validação/autorização do MCP (que nem chega ao handler) e nunca exposto ao agente chamador (a resposta final é normalizada da mesma forma independente de qual versão respondeu; só um `warning` interno sinaliza quando o fallback foi usado).
+- **`version` não é parâmetro de nenhuma tool** — confirmado por teste automatizado dedicado (`"version" in definition.inputSchema.shape` é `false`).
+
+**O fallback NÃO foi acionado de verdade durante os testes em homologação** — `v2.0/journeys` e `v2.0/journeys/drivers` funcionaram normalmente em toda a bateria de testes reais contra produção (central de demonstração). A lógica de fallback foi validada exclusivamente via simulação determinística nos testes automatizados (mock de `ApiCoreClient` que rejeita a chamada a `/v2.0/...` e resolve a chamada a `/v1.0/...`), não observada organicamente.
+
+### Achado crítico — o endpoint de fallback de `search_drivers` está QUEBRADO em produção
+
+`GET /v1.0/journeys/drivers` retorna **HTTP 500** (`{"error":"Internal error"}`) para **qualquer chamada testada, inclusive sem nenhum parâmetro** — não é um filtro específico quebrado (padrão usual encontrado em epics anteriores), é o endpoint de LISTA inteiro. Confirmado que os endpoints vizinhos, também `v1.0`, funcionam normalmente: `GET /v1.0/journeys/drivers/summary` (200) e `GET /v1.0/journeys/drivers/{id}` (200, shape camelCase — `clientId`, `limitTime`, `driverLicense`, etc., bem diferente do snake_case de v2.0).
+
+**Decisão registrada:** o fallback para `search_drivers` foi implementado exatamente como pedido pela spec (a decisão de arquitetura de US-083 não condiciona a implementação a v1.0 estar saudável) — mas isso significa que, na prática, **não há ganho real de resiliência hoje**: se `v2.0/journeys/drivers` falhar de verdade em produção, o fallback vai falhar também (o consumidor recebe o erro normalizado da falha de v1.0, nunca um crash — mas não uma recuperação bem-sucedida). Nenhum valor foi inventado para mascarar isso. Sinalizado aqui e no PR para a Getrak corrigir o endpoint v1.0, momento em que o fallback já implementado passaria a funcionar sem nenhuma mudança de código adicional.
+
+### Achado — `include[]=driver` tem shape diferente entre v1.0 e v2.0 de `GET /journeys` (fallback não é 100% schema-transparente)
+
+- v1.0: `driver: {id, name, email, document, system, device}`
+- v2.0: `driver: {id, name}`
+
+Ou seja, um consumidor que dependesse dos campos extras de v1.0 (email/document/system/device) veria menos campos no caso normal (servido por v2.0). Não normalizado artificialmente para "esconder" essa diferença — apenas documentado; a spec de US-080 não exige paridade de campos entre as duas versões, só que a viagem seja retornada.
+
+### Achado crítico — `filters[client_id]` em `GET /v2.0/journeys` está quebrado para usuários não-admin
+
+Documentado como "Admin/operator only: scope the listing to a specific client. Ignored for client/subclient users" — mas testado contra produção real (usuário de teste não-admin, central de demonstração) e confirmado que **qualquer valor de `client_id` diferente de `0` retorna HTTP 500** (`client_id=0` retorna 200 normalmente, sem filtrar nada de verdade). A documentação promete "ignorado silenciosamente"; o comportamento real é "quebra a chamada". Por isso `client_id` **não é exposto** como parâmetro de `search_journeys` — mesmo padrão de "não expor parâmetro confirmadamente quebrado" já usado no Epic 19 (`order[date]`).
+
+### Achado — `filters[id][in][]` em `GET /v2.0/journeys/drivers` é silenciosamente ignorado
+
+Testado com e sem o sufixo `[]` — em ambos os casos a chamada retorna HTTP 200 com o total NÃO filtrado, ignorando os ids pedidos (confirmado comparando os ids retornados com os solicitados: não coincidem). Por isso `search_drivers` não expõe um filtro de múltiplos ids. O filtro singular não documentado `filters[id]` (exato, um único id) funciona, mas não foi pedido por nenhuma User Story deste epic e não foi exposto.
+
+### Achado crítico em `get_driver_details` (US-084) — HTTP 204 (sem corpo) para id inexistente, não 404
+
+Diferente do padrão usual do resto do projeto (404 limpo), `GET /v2.0/journeys/drivers/{id}` responde **HTTP 204 sem corpo** para um id inexistente. Como `response.ok` é `true` para 204, o cliente HTTP genérico (`ApiCoreClient.get`) tentaria `response.json()` num corpo vazio, lançando um erro de parse que virava `INTERNAL_ERROR` genérico — não um `DRIVER_NOT_FOUND` de domínio. **Corrigido na fundação**, não como hack pontual desta tool: `ApiCoreClient.get` agora trata `status === 204` retornando `undefined` em vez de tentar fazer parse de JSON (204 nunca tem corpo por definição HTTP — é uma correção de cliente HTTP genericamente correta, não específica deste endpoint). `get_driver_details` verifica `raw === undefined` e lança `DRIVER_NOT_FOUND` explicitamente. Validado end-to-end contra produção real (id inexistente → `DRIVER_NOT_FOUND` no envelope de erro do MCP, não um erro cru).
+
+### Achado crítico em `get_identifier_history` (US-089) — `filters[driver_id]` obrigatório na prática
+
+Mesmo padrão já visto no Epic 19 (US-079): omitir `filters[driver_id]` não produz um HTTP 400 limpo, produz **HTTP 500** `{"error":"Internal error"}` genérico. `driver_id` é obrigatório no schema Zod da tool — único ponto real de proteção do consumidor, validado antes de qualquer chamada à API Core (`ToolRuntime`). Um `driver_id` válido mas sem histórico (ou inexistente) retorna HTTP 200 com lista vazia normalizada, não erro. `start_date`/`end_date` deste endpoint vêm em formato `"YYYY-MM-DD HH:mm:ss"` (espaço, sem `T`/`Z`) — diferente do ISO 8601 usado no resto do domínio Journeys; repassado como veio, não reformatado.
+
+### Achado — `GET /v1.0/journeys/vehicles/available` (US-088) não pagina sob nenhuma convenção testada
+
+Confirmado que `page`/`per_page` não têm nenhum efeito — sempre retorna a lista completa (`{data: [...]}`, sem `page`/`pages`/`total` na resposta; 43 itens na central de demonstração). Mesmo tratamento já usado em `get_centrals`/Epic 21 (`search_equipment_devices`/`search_equipment_tags`): `createClientSideSliceAdapter`, com a limitação sinalizada via `warnings`, não escondida do consumidor.
+
+### Outros achados reais confirmados antes de codificar
+
+1. **Bug de paginação `perPage`/`per_page` reconfirmado** em `journeys`, `journeys/drivers` (ambas versões de cada) e `journeys/identifiers` — mesmo padrão de todo o resto do domínio Getrak Web.
+2. **`fields[]` "Defaults to id only" confirmado** em `journeys` (v1.0 e v2.0) e `journeys/identifiers`; em `journeys/drivers` v2.0 o default documentado (`id, name, status, device, registration, client_id`) também foi confirmado.
+3. **`filters[status][in][]` (journeys) exige o sufixo de array `[]`** — confirmado em v1.0 (sem `[]`, filtro silenciosamente ignorado); mesmo padrão em v2.0.
+4. **`order[name]` em `journeys/drivers` confirmado FUNCIONANDO** corretamente nas duas direções — a primeira leitura de uma amostra pequena pareceu estranha (nomes começando por caracteres não alfabéticos), mas era comparação lexicográfica simples correta, não um bug.
+5. **`id` do identificador GPS (US-086/US-089) é STRING** (código de dispositivo/chip), não numérico — repassado como veio.
+
+**Nota sobre `"x-internal": true`:** também presente em todos os endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/14/15/19/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
+## Epic 22 — Features (Getrak Web, Release 3, novo 20/08/2026) (US-103 a US-105)
+
+**Último epic da Release 3 / F12.**
+
+| Tool | User Story | Endpoint | Auth | Testado contra produção |
+|---|---|---|---|---|
+| `get_central_features` | US-103 | `GET /v1.0/centrals/features` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_central_feature_flags` | US-104 | `GET /v1.0/centrals/feature-flags` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+| `get_all_available_features` | US-105 | `GET /v1.0/centrals/all-features` | `oauth2Password`/`GetrakWeb` (delegado) | ✅ Sim (20/08/2026) |
+
+**Status:** ✅ 3 tools implementadas e testadas (mocks/contrato + validação real via chamada direta e via smoke test stdio do próprio servidor MCP), 14 testes automatizados novos (506 no total). Todas reaproveitam o fluxo de token delegado já existente (US-046/047/048).
+
+**Domínio no catálogo MCP:** novo domínio `features` (sem prefixo `web_`), mesma convenção já usada para `operations`/`reports`/`notifications`/`maintenance`/`journeys`. Nenhum dos 3 endpoints aceita qualquer parâmetro de query (confirmado no `openapi.json`: `parameters: null` nos 3, e contra chamada real). A tag `Features` também documenta `PUT /v1.0/centrals/features` (escrita, ativação/desativação de feature) — não implementada, conforme "Out of Scope" já registrado na própria spec de US-103.
+
+### Achado crítico — US-103 e US-104 são conceitos genuinamente distintos (confirmado empiricamente, não só por hipótese)
+
+A "atenção especial" da tarefa levantou a possibilidade de os dois conceitos serem redundantes. Testados os dois contra produção real (mesma central de demonstração) e comparados os conjuntos de chaves:
+
+- **US-103 (`get_central_features`)** devolveu 9 identificadores, **todos com sufixo `_mobile`**: `restricted_vehicle_notification_mobile`, `restricted_vehicle_notification_redirect_mobile`, `show_driver_mobile`, `show_hodometer_mobile`, `show_ignition_alert_mobile`, `show_perimeter_alert_mobile`, `show_speed_mobile`, `show_voltage_mobile`, `show_voltage_off_alert_mobile` — capacidades de exibição do app mobile (features contratadas/habilitadas, como a spec hipotetizou).
+- **US-104 (`get_central_feature_flags`)** devolveu 6 identificadores, **nenhum com sufixo `_mobile`**: `hide_getrak_store`, `ai_monitoring`, `equipment`, `hide_home_carrousel`, `video_monitoring`, `banner_countdown_v2` — flags de rollout/produto/experimento (ex.: monitoramento por IA, monitoramento por vídeo, contagem regressiva de banner).
+
+**Nenhuma sobreposição entre os dois conjuntos.** Confirma a hipótese da própria spec de US-104: são conceitos diferentes, não a mesma informação exposta duas vezes. **Nenhuma tool consolidada** — mantidas como duas tools separadas.
+
+### Achado crítico — `GET /v1.0/centrals/features` não tem envelope `{data: ...}`
+
+Diferente de `feature-flags`/`all-features` (ambos `{data: ...}`), a resposta real de `GET /v1.0/centrals/features` é o PRÓPRIO objeto de features na raiz do JSON (`{"show_driver_mobile": true, ...}`), sem nenhum wrapper. Consistente com o `openapi.json` não documentar absolutamente nenhum schema de resposta para esse endpoint (`properties` vazio) — shape descoberto só empiricamente. Um dos valores (`restricted_vehicle_notification_mobile`) é um objeto `{title, description}`, não um booleano como os demais — repassado como veio, sem assumir um tipo de valor único.
+
+### Achado sobre US-105 — dependência de central
+
+A "atenção especial" da tarefa pediu para confirmar se `GET /v1.0/centrals/all-features` exige isolamento por central (RF03) ou é informação global. Confirmado: **o endpoint não tem nenhum parâmetro de query** (nem central, nem qualquer filtro) — a própria descrição no `openapi.json` ("Returns a list of all possible features for centrals") já sugeria isso, e a ausência total de parâmetros confirma estruturalmente. **Achado adicional, não pedido explicitamente mas descoberto ao comparar as respostas:** os 9 `identifier` do catálogo de US-105 coincidem EXATAMENTE com os 9 identificadores de US-103 (mesmos nomes, mesma central de teste) — ou seja, este catálogo documenta os metadados (tipo de valor, datas de criação/atualização) do conceito de "features vinculadas" (US-103), não de "feature flags" (US-104), apesar do nome genérico do endpoint.
+
+Mesmo o endpoint não filtrando por central, `central` continua **obrigatório no schema Zod da tool** — não como filtro de negócio, mas como gate de autorização do MCP e chave do cache do token delegado (CLAUDE.md Seção 3/6), mesmo padrão já usado em `get_current_user`/US-069 e `get_centrals`/US-034. Testado explicitamente: chamar a tool sem `central` é bloqueado com `VALIDATION_ERROR` antes de qualquer chamada à API Core. **Limitação sinalizada:** não foi possível confirmar empiricamente se o catálogo é idêntico entre centrais diferentes, pois só havia uma central de teste disponível nesta rodada — a conclusão de "catálogo único da plataforma" é baseada em evidência estrutural (ausência de parâmetro de central, descrição documentada), não em comparação direta entre duas centrais reais.
+
+**Nota sobre `"x-internal": true`:** também presente nos 3 endpoints desta tag no `openapi.json` (mesmo padrão já visto em Epic 13/14/15/19/20/21). Não tratado como bloqueio, apenas registrado.
+
+---
+
+## Resumo consolidado — Release 3 (F12)
+
+Com o Epic 22, os 10 domínios do F12 (PRD) previstos para a Release 3 estão implementados:
+
+| # | Domínio (F12) | Epic | User Stories | Tools |
+|---|---|---|---|---|
+| 1 | Reports | Epic 13 | US-049, US-050 | 2 |
+| 2 | Maintenance | Epic 14 | US-051 a US-060 | 10 |
+| 3 | Clients | Epic 15 | US-061 a US-066 | 6 |
+| 4 | Users | Epic 16 | US-067 a US-069 | 3 |
+| 5 | Vehicles | Epic 17 | US-070 a US-075 (US-076 fora) | 6 |
+| 6 | Notifications | Epic 18 | US-077, US-078 | 2 |
+| 7 | Operations | Epic 19 | US-079 | 1 |
+| 8 | Journeys | Epic 20 | US-080 a US-089 | 10 |
+| 9 | Equipments | Epic 21 | US-090 a US-102 | 13 |
+| 10 | Features | Epic 22 | US-103 a US-105 | 3 |
+
+**Total Release 3: 56 tools** (dentro do total geral de 87 tools MCP do projeto, incluindo Epics 1 a 10 anteriores à Release 3 e as capacidades novas US-106/US-107, Epic 3).
+
+### Itens que ficaram de fora ou pendentes dentro desses 10 domínios
+
+- **US-076 (`get_isoline_shape`, Epic 17/Vehicles):** deliberadamente fora — a própria spec condiciona a implementação a confirmação de caso de uso por Diego (Product Owner), não obtida até o momento.
+- **US-054/US-060 (anexos de abastecimento/manutenção, Epic 14/Maintenance):** avaliadas para possível bundle dentro de `get_fuel_supply_details`/`get_maintenance_details`, conforme pedido explicitamente naquela rodada — **decisão registrada: mantidas como tools SEPARADAS**, não consolidadas (sem mecanismo nativo de composição confirmado por teste negativo, anexos têm ciclo de vida/URLs pré-assinadas próprios, e consistência com o precedente do resto do projeto para pares detalhe+drill-down).
+- **US-103/US-104/US-105 (Epic 22/Features):** avaliadas para possível redundância entre US-103 e US-104 — **decisão registrada: mantidas como tools SEPARADAS**, conjuntos de identificadores confirmados sem nenhuma sobreposição. US-105 mantida como tool independente (catálogo de metadados de US-103, dependência de central resolvida como gate de autorização do MCP, não filtro de negócio).
+- **Operações de escrita** documentadas nas tags correspondentes de todos os 10 domínios (criação/edição/exclusão/ativação de relatórios, manutenções, clientes/subclientes, usuários, veículos, notificações, viagens/motoristas/identificadores, equipamentos, features) — nenhuma implementada em nenhum dos 10 domínios, conforme escopo read-only da V1.
+- **Ordenação em `search_operations`** (`order[date]`, Epic 19/Operations) — parâmetro documentado, confirmado quebrado no backend; não exposto até correção.
+- **Fallback v1.0 de `search_drivers`** (Epic 20/Journeys) — implementado conforme decisão de arquitetura (GAP-020), mas o endpoint de fallback real (`GET /v1.0/journeys/drivers`) está confirmadamente quebrado (HTTP 500 para qualquer chamada) — sem ganho real de resiliência até correção da Getrak.
+- **Sobreposições nominais investigadas e conscientemente não consolidadas** (registradas em cada epic correspondente, não repetidas aqui em detalhe): US-090 (Epic 21) vs. US-020 (Epic 4); US-061 (Epic 15) vs. US-030 (Epic 9); US-070 (Epic 17) vs. US-008 (Epic 2); US-074/075 (Epic 17) vs. US-013 (Epic 3).
+- Fora dos 10 domínios do F12, mas registrados anteriormente como pendentes do projeto como um todo: Epic 8 (US-029, tool composta), US-032 (GAP-018), US-038 (GAP-019), Epic 11 (US-043, bloqueado por Produto/Segurança), Epic 12 (nenhuma User Story gerada), Epic 6/7 (Telemetria/Webhooks, Release 2).
+
+---
+
 ## Ainda não implementado
 
 - Epic 6/7 (Telemetria, Webhooks) — Release 2, fora de escopo.
 - Epic 8 (US-029) — tool composta `get_vehicle_operational_context`.
 - US-032 (Epic 9) — bloqueada por GAP-018 (ver acima).
 - US-038 (Epic 10) — bloqueada por GAP-019 (ver acima).
+- US-076 (Epic 17) — bloqueada por falta de confirmação de caso de uso por Diego (Product Owner), conforme a própria spec exige.
 - Epic 11 (US-043) — bloqueado por aprovação de Produto/Segurança.
 - Epic 12 — nenhuma User Story gerada.
+- Operações de envio/agendamento/cancelamento de notificação (tag `Notifications`, fora do escopo do Epic 18) — write, fora da V1.
+- Ordenação em `search_operations` (`order[date]`, Epic 19) — parâmetro documentado, mas confirmado quebrado no backend para todo valor testado; não exposto pela tool até correção no backend.
 
 Ver `CLAUDE.md` (Seções 0, 9 e 10) para o detalhamento completo de bloqueios e itens de Engineering Discovery em aberto.

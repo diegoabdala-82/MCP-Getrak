@@ -41,6 +41,14 @@ export interface CallGetrakWebEndpointParams {
   central: string;
   /** Identidade do usuário Getrak (por ora, `consumer.consumer_id` — ver CLAUDE.md Seção 6.2/US-046). */
   userId: string;
+  /**
+   * Código de erro específico do domínio a usar em caso de 404 (ex.:
+   * `USER_NOT_FOUND`, Epic 16/US-067) — repassado a `ApiCoreClient.get`, que
+   * já suporta esse parâmetro (usado por Epic 5/work-orders). Nenhuma tool
+   * do Epic 10 precisou disso até agora (nenhuma delas busca por id
+   * individual); adicionado aqui em vez de duplicado por domínio.
+   */
+  notFoundCode?: string;
 }
 
 export function callGetrakWebEndpoint<T>(params: CallGetrakWebEndpointParams): Promise<T> {
@@ -50,6 +58,7 @@ export function callGetrakWebEndpoint<T>(params: CallGetrakWebEndpointParams): P
     environment: params.environment,
     central: params.central,
     authScheme: GETRAK_WEB_AUTH_SCHEME,
+    notFoundCode: params.notFoundCode,
     delegatedTokenProvider: () =>
       params.deps.delegatedTokenManager.getAccessToken({
         environment: params.environment,

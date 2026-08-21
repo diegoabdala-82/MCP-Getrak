@@ -10,10 +10,10 @@ import { StaticConsumerIdentityResolver } from "../../../src/foundation/identity
 import { ToolRuntime } from "../../../src/foundation/tool-runtime.js";
 import { registerLocationTools } from "../../../src/domain/locations/index.js";
 import { createGetrakMcpServer } from "../../../src/server.js";
-import { createFakeApiCoreClient } from "./test-helpers.js";
+import { createFakeApiCoreClient, createFakeDelegatedTokenManager } from "./test-helpers.js";
 
-describe("Epic 3 — registro das 7 tools de localização no servidor MCP", () => {
-  it("expõe as 7 tools na descoberta nativa", async () => {
+describe("Epic 3 — registro das 9 tools de localização no servidor MCP", () => {
+  it("expõe as 9 tools na descoberta nativa", async () => {
     const auditLogger = new AuditLogger(new InMemoryAuditSink());
     const centralGuard = new CentralAuthorizationGuard(new StaticCentralAuthorizationProvider({}));
     const { server, registerDomainTool } = createGetrakMcpServer({
@@ -25,7 +25,10 @@ describe("Epic 3 — registro das 7 tools de localização no servidor MCP", () 
       auditLogger,
     });
 
-    registerLocationTools(registerDomainTool, { apiCoreClient: createFakeApiCoreClient([]).client });
+    registerLocationTools(registerDomainTool, {
+      apiCoreClient: createFakeApiCoreClient([]).client,
+      delegatedTokenManager: createFakeDelegatedTokenManager().manager,
+    });
 
     const listToolsHandler = (
       server as unknown as {
@@ -37,10 +40,12 @@ describe("Epic 3 — registro das 7 tools de localização no servidor MCP", () 
     const names = result?.tools.map((t) => t.name).sort();
 
     expect(names).toEqual([
+      "analyze_vehicle_behavior",
       "get_offline_treatment_history",
       "get_offline_treatments",
       "get_vehicle_current_location",
       "get_vehicle_inputs_report",
+      "get_vehicle_last_registers",
       "get_vehicle_location_history",
       "get_vehicle_movements_and_stops",
       "get_vehicle_paths",
